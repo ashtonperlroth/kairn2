@@ -27,7 +27,20 @@ export async function ensureDirs(): Promise<void> {
 export async function loadConfig(): Promise<KairnConfig | null> {
   try {
     const data = await fs.readFile(CONFIG_PATH, "utf-8");
-    return JSON.parse(data) as KairnConfig;
+    const raw = JSON.parse(data) as Record<string, unknown>;
+
+    // Handle old config format (v1.0.0: anthropic_api_key)
+    if (raw.anthropic_api_key && !raw.provider) {
+      return {
+        provider: "anthropic",
+        api_key: raw.anthropic_api_key as string,
+        model: "claude-sonnet-4-6",
+        default_runtime: "claude-code",
+        created_at: (raw.created_at as string) || new Date().toISOString(),
+      };
+    }
+
+    return raw as unknown as KairnConfig;
   } catch {
     return null;
   }

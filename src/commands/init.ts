@@ -11,9 +11,9 @@ const PROVIDER_MODELS: Record<LLMProvider, { name: string; models: { name: strin
   anthropic: {
     name: "Anthropic",
     models: [
-      { name: "Claude Sonnet 4 (recommended — fast, cheap)", value: "claude-sonnet-4-20250514" },
-      { name: "Claude Opus 4 (highest quality)", value: "claude-opus-4-20250514" },
-      { name: "Claude Haiku 3.5 (fastest, cheapest)", value: "claude-3-5-haiku-20241022" },
+      { name: "Claude Sonnet 4.6 (recommended — fast, smart)", value: "claude-sonnet-4-6" },
+      { name: "Claude Opus 4.6 (highest quality)", value: "claude-opus-4-6" },
+      { name: "Claude Haiku 4.5 (fastest, cheapest)", value: "claude-haiku-4-5-20251001" },
     ],
   },
   openai: {
@@ -38,7 +38,7 @@ async function verifyKey(provider: LLMProvider, apiKey: string, model: string): 
     if (provider === "anthropic") {
       const client = new Anthropic({ apiKey });
       await client.messages.create({
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 10,
         messages: [{ role: "user", content: "ping" }],
       });
