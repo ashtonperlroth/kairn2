@@ -1,0 +1,77 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1774910193563,
+  "projectRoot": "/Users/ashtonperlroth/Projects/kairn-v2",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {},
+  "hotPaths": [
+    {
+      "path": "package.json",
+      "accessCount": 2,
+      "lastAccessed": 1774910277162,
+      "type": "file"
+    },
+    {
+      "path": "PLAN.md",
+      "accessCount": 1,
+      "lastAccessed": 1774910228861,
+      "type": "file"
+    },
+    {
+      "path": "RESEARCH.md",
+      "accessCount": 1,
+      "lastAccessed": 1774910235006,
+      "type": "file"
+    },
+    {
+      "path": "tsconfig.json",
+      "accessCount": 1,
+      "lastAccessed": 1774910279074,
+      "type": "file"
+    },
+    {
+      "path": "tsup.config.ts",
+      "accessCount": 1,
+      "lastAccessed": 1774910280311,
+      "type": "file"
+    },
+    {
+      "path": "bin/kairn.js",
+      "accessCount": 1,
+      "lastAccessed": 1774910281088,
+      "type": "file"
+    },
+    {
+      "path": "src/cli.ts",
+      "accessCount": 1,
+      "lastAccessed": 1774910282339,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

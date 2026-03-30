@@ -1,0 +1,5 @@
+- Never commit API keys or secrets to files
+- Use environment variable references (${VAR}) in .mcp.json configs
+- Never use eval() or Function() constructor
+- Always validate and sanitize user input before passing to shell
+- Use parameterized queries if any SQL is involved

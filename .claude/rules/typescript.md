@@ -1,0 +1,7 @@
+- Use async/await, never callbacks
+- Use @inquirer/prompts (not the legacy inquirer package)
+- Use chalk for terminal colors
+- Errors: catch at command level, print friendly message, exit(1)
+- All file I/O via fs/promises
+- Use crypto.randomUUID() for IDs
+- Strict TypeScript — no `any` types unless absolutely necessary
