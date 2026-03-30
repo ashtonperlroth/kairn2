@@ -15,10 +15,10 @@ Kairn selects the right tools, generates workflow-specific instructions, and wri
 ## Install
 
 ```bash
-npm install -g kairn
+npm install -g kairn-cli
 ```
 
-Requires Node.js 18+.
+Requires Node.js 18+. The command is `kairn`.
 
 ## Quick Start
 
