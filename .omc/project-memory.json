@@ -95,6 +95,18 @@
       "accessCount": 1,
       "lastAccessed": 1774910410365,
       "type": "file"
+    },
+    {
+      "path": "src/compiler/prompt.ts",
+      "accessCount": 1,
+      "lastAccessed": 1774910458813,
+      "type": "file"
+    },
+    {
+      "path": "src/compiler/compile.ts",
+      "accessCount": 1,
+      "lastAccessed": 1774910468555,
+      "type": "file"
     }
   ],
   "userDirectives": []
