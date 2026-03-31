@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { password, select } from "@inquirer/prompts";
+import { input, password, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
@@ -9,6 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { loadConfig, saveConfig, getConfigPath, getTemplatesDir } from "../config.js";
 import type { KairnConfig, LLMProvider } from "../types.js";
+import { PROVIDER_CONFIGS, PROVIDER_MODELS, PROVIDER_CHOICES, getProviderName, getBaseURL, getVerifyModel } from "../providers.js";
 import { ui } from "../ui.js";
 import { printFullBanner } from "../logo.js";
 
@@ -57,64 +58,39 @@ async function installSeedTemplates(): Promise<void> {
   }
 }
 
-const PROVIDER_MODELS: Record<LLMProvider, { name: string; models: { name: string; value: string }[] }> = {
-  anthropic: {
-    name: "Anthropic",
-    models: [
-      { name: "Claude Sonnet 4.6 (recommended — fast, smart)", value: "claude-sonnet-4-6" },
-      { name: "Claude Opus 4.6 (highest quality)", value: "claude-opus-4-6" },
-      { name: "Claude Haiku 4.5 (fastest, cheapest)", value: "claude-haiku-4-5-20251001" },
-    ],
-  },
-  openai: {
-    name: "OpenAI",
-    models: [
-      { name: "GPT-4o (recommended)", value: "gpt-4o" },
-      { name: "GPT-4o mini (faster, cheaper)", value: "gpt-4o-mini" },
-      { name: "o3 (reasoning)", value: "o3" },
-    ],
-  },
-  google: {
-    name: "Google Gemini",
-    models: [
-      { name: "Gemini 2.5 Flash (recommended)", value: "gemini-2.5-flash-preview-05-20" },
-      { name: "Gemini 2.5 Pro (highest quality)", value: "gemini-2.5-pro-preview-05-06" },
-    ],
-  },
-};
-
-async function verifyKey(provider: LLMProvider, apiKey: string, model: string): Promise<boolean> {
+async function verifyKey(
+  provider: LLMProvider,
+  apiKey: string,
+  baseURL?: string,
+  model?: string,
+): Promise<boolean> {
   try {
     if (provider === "anthropic") {
       const client = new Anthropic({ apiKey });
       await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 10,
-        messages: [{ role: "user", content: "ping" }],
-      });
-      return true;
-    } else if (provider === "openai") {
-      const client = new OpenAI({ apiKey });
-      await client.chat.completions.create({
-        model: "gpt-4o-mini",
-        max_tokens: 10,
-        messages: [{ role: "user", content: "ping" }],
-      });
-      return true;
-    } else if (provider === "google") {
-      // Google uses OpenAI-compatible API
-      const client = new OpenAI({
-        apiKey,
-        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
-      });
-      await client.chat.completions.create({
-        model: "gemini-2.5-flash-preview-05-20",
+        model: getVerifyModel(provider, model || "claude-haiku-4-5-20251001"),
         max_tokens: 10,
         messages: [{ role: "user", content: "ping" }],
       });
       return true;
     }
-    return false;
+
+    // All other providers use OpenAI-compatible API
+    const verifyModel = provider === "other"
+      ? (model || "test")
+      : getVerifyModel(provider, model || "");
+    const resolvedBaseURL = getBaseURL(provider, baseURL);
+
+    const clientOptions: { apiKey: string; baseURL?: string } = { apiKey };
+    if (resolvedBaseURL) clientOptions.baseURL = resolvedBaseURL;
+
+    const client = new OpenAI(clientOptions);
+    await client.chat.completions.create({
+      model: verifyModel,
+      max_tokens: 10,
+      messages: [{ role: "user", content: "ping" }],
+    });
+    return true;
   } catch {
     return false;
   }
@@ -142,51 +118,62 @@ export const initCommand = new Command("init")
 
     const provider = await select<LLMProvider>({
       message: "LLM provider",
-      choices: [
-        { name: "Anthropic (Claude) — recommended", value: "anthropic" as LLMProvider },
-        { name: "OpenAI (GPT)", value: "openai" as LLMProvider },
-        { name: "Google (Gemini)", value: "google" as LLMProvider },
-      ],
+      choices: PROVIDER_CHOICES,
     });
 
-    const providerInfo = PROVIDER_MODELS[provider];
+    let model: string;
+    let baseURL: string | undefined;
+    let providerDisplayName: string;
 
-    const model = await select({
-      message: "Compilation model",
-      choices: providerInfo.models,
-    });
+    if (provider === "other") {
+      // Custom OpenAI-compatible endpoint
+      providerDisplayName = "Custom endpoint";
+      baseURL = await input({ message: "Base URL" });
+      model = await input({ message: "Model name" });
+    } else {
+      providerDisplayName = getProviderName(provider);
+      model = await select({
+        message: "Compilation model",
+        choices: PROVIDER_MODELS[provider],
+      });
+    }
 
     const apiKey = await password({
-      message: `${providerInfo.name} API key`,
+      message: `${providerDisplayName} API key${provider === "other" ? " (Enter to skip)" : ""}`,
       mask: "*",
     });
 
-    if (!apiKey) {
+    if (!apiKey && provider !== "other") {
       console.log(ui.error("No API key provided. Aborting."));
       process.exit(1);
     }
 
-    console.log(chalk.dim("\n  Verifying API key..."));
-    const valid = await verifyKey(provider, apiKey, model);
+    if (apiKey) {
+      console.log(chalk.dim("\n  Verifying API key..."));
+      const valid = await verifyKey(provider, apiKey, baseURL, model);
 
-    if (!valid) {
-      console.log(ui.error("Invalid API key. Check your key and try again."));
-      process.exit(1);
+      if (!valid) {
+        console.log(ui.error("Invalid API key. Check your key and try again."));
+        process.exit(1);
+      }
+
+      console.log(ui.success("API key verified"));
+    } else {
+      console.log(ui.warn("No API key — skipping verification"));
     }
-
-    console.log(ui.success("API key verified"));
 
     const config: KairnConfig = {
       provider,
-      api_key: apiKey,
+      api_key: apiKey || "",
       model,
+      ...(baseURL ? { base_url: baseURL } : {}),
       default_runtime: "claude-code",
       created_at: new Date().toISOString(),
     };
 
     await saveConfig(config);
     console.log(ui.success(`Config saved to ${chalk.dim(getConfigPath())}`));
-    console.log(ui.kv("Provider", providerInfo.name));
+    console.log(ui.kv("Provider", providerDisplayName));
     console.log(ui.kv("Model", model));
 
     await installSeedTemplates();

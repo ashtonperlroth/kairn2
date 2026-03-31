@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import { loadConfig, getEnvsDir, ensureDirs } from "../config.js";
 import { SYSTEM_PROMPT, CLARIFICATION_PROMPT } from "./prompt.js";
 import { loadRegistry } from "../registry/loader.js";
+import { getProviderName, getBaseURL, getCheapModel } from "../providers.js";
 import type { EnvironmentSpec, RegistryTool, KairnConfig, Clarification } from "../types.js";
 
 function buildUserMessage(intent: string, registry: RegistryTool[]): string {
@@ -90,6 +91,8 @@ function classifyError(err: unknown, provider: string): string {
 }
 
 async function callLLM(config: KairnConfig, userMessage: string): Promise<string> {
+  const providerName = getProviderName(config.provider);
+
   if (config.provider === "anthropic") {
     const client = new Anthropic({ apiKey: config.api_key });
     try {
@@ -105,34 +108,33 @@ async function callLLM(config: KairnConfig, userMessage: string): Promise<string
       }
       return textBlock.text;
     } catch (err) {
-      throw new Error(classifyError(err, "Anthropic"));
-    }
-  } else if (config.provider === "openai" || config.provider === "google") {
-    const providerName = config.provider === "google" ? "Google" : "OpenAI";
-    const clientOptions: { apiKey: string; baseURL?: string } = { apiKey: config.api_key };
-    if (config.provider === "google") {
-      clientOptions.baseURL = "https://generativelanguage.googleapis.com/v1beta/openai/";
-    }
-    const client = new OpenAI(clientOptions);
-    try {
-      const response = await client.chat.completions.create({
-        model: config.model,
-        max_tokens: 8192,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage },
-        ],
-      });
-      const text = response.choices[0]?.message?.content;
-      if (!text) {
-        throw new Error("No text response from compiler LLM");
-      }
-      return text;
-    } catch (err) {
       throw new Error(classifyError(err, providerName));
     }
   }
-  throw new Error(`Unsupported provider: ${config.provider}. Run \`kairn init\` to reconfigure.`);
+
+  // All other providers use OpenAI-compatible API
+  const resolvedBaseURL = getBaseURL(config.provider, config.base_url);
+  const clientOptions: { apiKey: string; baseURL?: string } = { apiKey: config.api_key };
+  if (resolvedBaseURL) clientOptions.baseURL = resolvedBaseURL;
+
+  const client = new OpenAI(clientOptions);
+  try {
+    const response = await client.chat.completions.create({
+      model: config.model,
+      max_tokens: 8192,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userMessage },
+      ],
+    });
+    const text = response.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("No text response from compiler LLM");
+    }
+    return text;
+  } catch (err) {
+    throw new Error(classifyError(err, providerName));
+  }
 }
 
 function validateSpec(spec: EnvironmentSpec, onProgress?: (msg: string) => void): void {
@@ -206,11 +208,9 @@ export async function generateClarifications(
 
   onProgress?.("Analyzing your request...");
 
-  // Use a fast model for clarifications
+  // Use the cheapest model for clarifications regardless of selected compilation model
   const clarificationConfig = { ...config };
-  if (config.provider === "anthropic") {
-    clarificationConfig.model = "claude-haiku-4-5-20251001";
-  }
+  clarificationConfig.model = getCheapModel(config.provider, config.model);
 
   const response = await callLLM(clarificationConfig, CLARIFICATION_PROMPT + "\n\nUser description: " + intent);
 

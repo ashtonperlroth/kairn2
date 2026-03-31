@@ -7,6 +7,26 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.10.0] — 2026-03-31
+
+### Added
+- **5 new LLM providers** — xAI (Grok), DeepSeek, Mistral, Groq, and custom OpenAI-compatible endpoints join Anthropic, OpenAI, and Google
+- **Custom endpoint support** — "Other" provider option for local models (Ollama, LM Studio) or any OpenAI-compatible API with configurable base URL, model name, and optional API key
+- **Updated model menus** — Anthropic (Sonnet 4.6, Opus 4.6, Haiku 4.5), OpenAI (GPT-4.1, GPT-4.1 mini, o4-mini, GPT-5 mini), Google (Gemini 2.5/3 Flash, Gemini 2.5/3.1 Pro), xAI (Grok 4.1 Fast, Grok 4.20), DeepSeek (V3.2 Chat/Reasoner), Mistral (Large 3, Codestral, Small 4), Groq (Llama 4, DeepSeek R1, Qwen 3)
+- **Cheap model routing** — clarification step uses the cheapest model per provider (Haiku, nano, flash, etc.) regardless of selected compilation model
+- **`src/providers.ts` module** — shared provider configs, model menus, and helper functions used by init and compiler
+
+### Changed
+- **`kairn init`** — now offers 8 provider choices (was 3); custom endpoint flow prompts for base URL and model name
+- **`KairnConfig` type** — added optional `base_url` field for custom endpoints
+- **`LLMProvider` type** — expanded from 3 to 8 variants (anthropic, openai, google, xai, deepseek, mistral, groq, other)
+- **Compiler LLM routing** — unified OpenAI-compatible path for all non-Anthropic providers using shared `PROVIDER_CONFIGS`
+
+### Fixed
+- **`optimize` command** — removed invalid third argument in `collectAndWriteKeys` call that caused type error
+
+---
+
 ## [1.9.0] — 2026-03-31
 
 ### Added

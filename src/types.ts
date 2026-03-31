@@ -1,9 +1,18 @@
-export type LLMProvider = "anthropic" | "openai" | "google";
+export type LLMProvider =
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "xai"
+  | "deepseek"
+  | "mistral"
+  | "groq"
+  | "other";
 
 export interface KairnConfig {
   provider: LLMProvider;
   api_key: string;
   model: string;
+  base_url?: string;
   default_runtime: string;
   created_at: string;
 }

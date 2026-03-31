@@ -358,7 +358,7 @@ export const optimizeCommand = new Command("optimize")
 
       // Interactive key collection after optimize
       if (hasEnvVars) {
-        await collectAndWriteKeys(summary.envSetup, targetDir, { quick: options.quick });
+        await collectAndWriteKeys(summary.envSetup, targetDir);
         console.log("");
       }
 
