@@ -44,6 +44,31 @@ export interface EnvironmentSpec {
   };
 }
 
+/** Pass 1 output: tool selection + project outline (small JSON, no embedded markdown) */
+export interface SkeletonSpec {
+  name: string;
+  description: string;
+  tools: ToolSelection[];
+  outline: {
+    tech_stack: string[];
+    workflow_type: string;
+    key_commands: string[];
+    custom_rules: string[];
+    custom_agents: string[];
+    custom_skills: string[];
+  };
+}
+
+/** Pass 2 output: all harness content (CLAUDE.md, commands, rules, agents, etc.) */
+export interface HarnessContent {
+  claude_md: string;
+  commands: Record<string, string>;
+  rules: Record<string, string>;
+  agents: Record<string, string>;
+  skills: Record<string, string>;
+  docs: Record<string, string>;
+}
+
 export type RuntimeTarget = "claude-code" | "hermes";
 
 export interface Clarification {
