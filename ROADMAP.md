@@ -70,14 +70,23 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] Debugging guidance in CLAUDE.md ("paste raw errors, use subagents")
 - [x] Git workflow guidance ("small commits, conventional format")
 
-### v1.8.0 ✅ — Secrets Management ([design doc](docs/design/v1.8-secrets-management.md))
-- [x] Interactive API key collection after environment generation (prompted, masked input)
-- [x] `.env` file generation with entered keys + empty placeholders for skipped
-- [x] `.gitignore` auto-update to exclude `.env`
-- [x] SessionStart hook to load `.env` into Claude Code via `CLAUDE_ENV_FILE`
-- [x] `kairn keys` command (add/update keys for existing environments)
-- [x] `kairn keys --show` (display which keys are set vs missing)
-- [x] `--quick` flag skips key prompts (writes .env with empty placeholders)
+### v1.8.0 — Secrets Management ([design doc](docs/design/v1.8-secrets-management.md))
+- [ ] Interactive API key collection after environment generation (prompted, masked input)
+- [ ] `.env` file generation with entered keys + empty placeholders for skipped
+- [ ] `.gitignore` auto-update to exclude `.env`
+- [ ] SessionStart hook to load `.env` into Claude Code via `CLAUDE_ENV_FILE`
+- [ ] `kairn keys` command (add/update keys for existing environments)
+- [ ] `kairn keys --show` (display which keys are set vs missing)
+- [ ] `--quick` flag skips key prompts (writes .env with empty placeholders)
+
+### v1.9.0 — Autonomy Levels & Workflow Loops ([design doc](docs/design/v1.9-autonomy-levels.md))
+- [ ] Autonomy level selection during `kairn describe` (1-4)
+- [ ] **Level 1 (Guided):** `/project:tour`, SessionStart welcome, QUICKSTART.md, workflow reference in CLAUDE.md
+- [ ] **Level 2 (Assisted):** `/project:loop` (workflow-specific automated cycle), `@pm` agent
+- [ ] **Level 3 (Autonomous):** `/project:auto` (PM plans, loop executes in worktrees, PR delivery)
+- [ ] **Level 4 (Full Auto):** `/project:autopilot` (continuous execution with stop conditions)
+- [ ] Workflow-specific loops (code, research, content, bug-fix)
+- [ ] `@pm` agent (maintains roadmap, specs features, prioritizes, does NOT code)
 
 ---
 
