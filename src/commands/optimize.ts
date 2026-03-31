@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { input, confirm, checkbox } from "@inquirer/prompts";
+import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import fs from "fs/promises";
 import path from "path";
@@ -15,7 +15,7 @@ import { loadRegistry } from "../registry/loader.js";
 import type { RuntimeTarget } from "../types.js";
 import { scanProject } from "../scanner/scan.js";
 import type { ProjectProfile } from "../scanner/scan.js";
-import type { EnvironmentSpec, RegistryTool } from "../types.js";
+import type { EnvironmentSpec } from "../types.js";
 
 interface FileDiff {
   path: string;
