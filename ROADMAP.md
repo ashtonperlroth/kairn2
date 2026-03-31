@@ -79,14 +79,14 @@ Each version milestone links to a detailed design doc in `docs/design/` with imp
 - [x] `kairn keys --show` (display which keys are set vs missing)
 - [x] `--quick` flag skips key prompts (writes .env with empty placeholders)
 
-### v1.9.0 — Autonomy Levels & Workflow Loops ([design doc](docs/design/v1.9-autonomy-levels.md))
-- [ ] Autonomy level selection during `kairn describe` (1-4)
-- [ ] **Level 1 (Guided):** `/project:tour`, SessionStart welcome, QUICKSTART.md, workflow reference in CLAUDE.md
-- [ ] **Level 2 (Assisted):** `/project:loop` (workflow-specific automated cycle), `@pm` agent
-- [ ] **Level 3 (Autonomous):** `/project:auto` (PM plans, loop executes in worktrees, PR delivery)
-- [ ] **Level 4 (Full Auto):** `/project:autopilot` (continuous execution with stop conditions)
-- [ ] Workflow-specific loops (code, research, content, bug-fix)
-- [ ] `@pm` agent (maintains roadmap, specs features, prioritizes, does NOT code)
+### v1.9.0 ✅ — Autonomy Levels & Workflow Loops ([design doc](docs/design/v1.9-autonomy-levels.md))
+- [x] Autonomy level selection during `kairn describe` (1-4)
+- [x] **Level 1 (Guided):** `/project:tour`, SessionStart welcome, QUICKSTART.md, workflow reference in CLAUDE.md
+- [x] **Level 2 (Assisted):** `/project:loop` (workflow-specific automated cycle), `@pm` agent
+- [x] **Level 3 (Autonomous):** `/project:auto` (PM plans, loop executes in worktrees, PR delivery)
+- [x] **Level 4 (Full Auto):** `/project:autopilot` (continuous execution with stop conditions)
+- [x] Workflow-specific loops (code, research, content, bug-fix)
+- [x] `@pm` agent (maintains roadmap, specs features, prioritizes, does NOT code)
 
 ---
 

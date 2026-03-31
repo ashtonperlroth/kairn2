@@ -182,6 +182,7 @@ export async function compile(
     intent,
     created_at: new Date().toISOString(),
     ...parsed,
+    autonomy_level: (parsed as Partial<EnvironmentSpec>).autonomy_level ?? 1,
   };
 
   validateSpec(spec, onProgress);

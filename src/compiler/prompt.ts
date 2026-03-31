@@ -262,6 +262,19 @@ When generating for Hermes runtime, the same EnvironmentSpec JSON is produced. T
 
 The LLM output format does not change. Adapter-level conversion happens post-compilation.
 
+## Autonomy Levels
+
+The user may specify an autonomy level (1-4). This affects CLAUDE.md content:
+
+- **Level 1 (Guided):** Add a "Workflow" section showing recommended command flow (e.g., spec → sprint → plan → code → prove → grill → commit) and a "When to Use What" reference table.
+- **Level 2 (Assisted):** Level 1 content + mention /project:loop in the workflow section and @pm in the agents section of CLAUDE.md.
+- **Level 3 (Autonomous):** Level 2 content + mention /project:auto and worktree-based PR delivery workflow.
+- **Level 4 (Full Auto):** Level 3 content + add a prominent warning section about autonomous operation.
+
+The autonomy-specific commands, agents, and hooks are injected post-compilation. Focus on tailoring the CLAUDE.md content and workflow guidance for the selected level.
+
+If no autonomy level is specified, assume Level 1 (Guided).
+
 ## Output Schema
 
 Return ONLY valid JSON matching this structure:
