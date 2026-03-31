@@ -596,49 +596,33 @@ npx tsc --noEmit
 
 ## Step 8: CLI Entry Point (src/commands/evolve.ts)
 
-**What to build:** Wire up subcommands: `kairn evolve init`, `kairn evolve baseline`, `kairn evolve run`.
+**What to build:** Wire up subcommands that CALL the actual implementation functions. NOT stubs. Each subcommand must import and invoke the real logic from src/evolve/.
 
 **Files to create:**
 - `src/commands/evolve.ts`
 
 **What goes in it:**
-```typescript
-import { Command } from 'commander';
-import { ui } from '../ui.js';
 
-export const evolveCommand = new Command('evolve')
-  .description('Evolve your Claude Code environment (Kairn Evolve)')
-  .addCommand(
-    new Command('init')
-      .description('Initialize evolution workspace and auto-generate evals')
-      .option('--no-interactive', 'Skip interactive add-more-evals flow')
-      .action(async (options) => {
-        console.log(ui.section('Evolve Init'));
-        console.log('  (Not yet implemented)');
-        // Wire up to initCommand logic from src/evolve/init.ts
-      }),
-  )
-  .addCommand(
-    new Command('baseline')
-      .description('Snapshot current .claude/ as baseline')
-      .action(async () => {
-        console.log(ui.section('Baseline Snapshot'));
-        console.log('  (Not yet implemented)');
-        // Wire up to snapshotBaseline from src/evolve/baseline.ts
-      }),
-  )
-  .addCommand(
-    new Command('run')
-      .description('Run all tasks or a specific task')
-      .option('--task <id>', 'Run a specific task by ID')
-      .option('--iterations <n>', 'Number of iterations', '1')
-      .action(async (options) => {
-        console.log(ui.section('Evolution Run'));
-        console.log('  (Not yet implemented)');
-        // Wire up to main loop logic from src/evolve/loop.ts (v2.1)
-      }),
-  );
-```
+The evolve command must:
+1. `kairn evolve init` → calls createEvolveWorkspace() and writeTasksFile() from init.ts
+   - Reads .claude/CLAUDE.md to extract project context
+   - Uses templates.ts to select relevant eval templates
+   - Generates tasks.yaml with project-specific evals
+   - Shows branded output using ui.ts helpers
+   - Has try/catch error handling
+
+2. `kairn evolve baseline` → calls snapshotBaseline() from baseline.ts
+   - Verifies .kairn-evolve/ exists (error if not: "Run kairn evolve init first")
+   - Copies .claude/ into .kairn-evolve/baseline/
+   - Shows success message with file count
+
+3. `kairn evolve run --task <id>` → calls runTask() from runner.ts
+   - Loads tasks from tasks.yaml
+   - Runs specified task (or all tasks if no --task flag)
+   - Writes trace files
+   - Shows score output
+
+All actions wrapped in try/catch with ui.error() messages. Follow the pattern from src/commands/describe.ts.
 
 **Verification:**
 ```bash
@@ -647,13 +631,17 @@ node dist/cli.js evolve --help
 node dist/cli.js evolve init --help
 node dist/cli.js evolve baseline --help
 node dist/cli.js evolve run --help
+# Functional test: create a temp project with .claude/ and run:
+# node dist/cli.js evolve init
+# node dist/cli.js evolve baseline
 ```
 
 **Expected outcome:**
 - `src/commands/evolve.ts` exports evolveCommand
+- Commands call REAL functions, not stubs
 - `npm run build` succeeds
-- `kairn evolve --help` shows 3 subcommands
-- Help text is readable
+- `kairn evolve init` actually creates .kairn-evolve/ with tasks.yaml
+- `kairn evolve baseline` actually copies .claude/ to baseline/
 
 ---
 
