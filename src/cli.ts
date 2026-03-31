@@ -16,7 +16,7 @@ program
   .description(
     "Compile natural language intent into optimized Claude Code environments"
   )
-  .version("1.4.0");
+  .version("1.5.0");
 
 program.addCommand(initCommand);
 program.addCommand(describeCommand);
