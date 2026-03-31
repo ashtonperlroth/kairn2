@@ -47,6 +47,8 @@ npx tsx src/cli.ts     # run directly during dev
 - Use .mcp.json (project-scoped) for MCP servers, not settings.json
 
 ## Reference Files
-- PLAN.md — full implementation plan with steps
-- SPEC.md — product specification and vision
-- RESEARCH.md — deep research on Claude Code ecosystem, MCP servers, security
+- ROADMAP.md — public feature roadmap
+- CHANGELOG.md — release history
+- ~/Projects/kairn-internal/PLAN.md — implementation plan (private)
+- ~/Projects/kairn-internal/SPEC.md — product spec + business model (private)
+- ~/Projects/kairn-internal/RESEARCH.md — ecosystem research (private)
