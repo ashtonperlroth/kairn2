@@ -1,24 +1,50 @@
 import chalk from "chalk";
 
-// Brand colors
 const maroon = chalk.rgb(139, 0, 0);
-const warm = chalk.rgb(212, 165, 116);
+const darkMaroon = chalk.rgb(100, 0, 0);
+const warmStone = chalk.rgb(212, 165, 116);
+const lightStone = chalk.rgb(220, 190, 160);
+const dimStone = chalk.rgb(140, 100, 70);
 
 export const ui = {
-  // Brand
+  // Brand colors
   brand: (text: string) => maroon.bold(text),
-  accent: (text: string) => warm(text),
+  accent: (text: string) => warmStone(text),
 
-  // Headers
-  header: (text: string) => {
-    const line = "─".repeat(50);
-    return `\n  ${maroon("┌" + line + "┐")}\n  ${maroon("│")} ${maroon.bold(text.padEnd(49))}${maroon("│")}\n  ${maroon("└" + line + "┘")}\n`;
+  // Logos and banners
+  fullBanner: (subtitle?: string) => {
+    const KAIRN_WORDMARK = [
+      maroon("██╗  ██╗") + "  " + maroon("█████╗ ") + " " + maroon("██╗") + "  " + maroon("██████╗ ") + "  " + maroon("███╗   ██╗"),
+      maroon("██║ ██╔╝") + "  " + maroon("██╔══██╗") + " " + maroon("██║") + "  " + maroon("██╔══██╗") + "  " + maroon("████╗  ██║"),
+      warmStone("█████╔╝ ") + "  " + warmStone("███████║") + " " + warmStone("██║") + "  " + warmStone("██████╔╝") + "  " + warmStone("██╔██╗ ██║"),
+      warmStone("██╔═██╗ ") + "  " + warmStone("██╔══██║") + " " + warmStone("██║") + "  " + warmStone("██╔══██╗") + "  " + warmStone("██║╚██╗██║"),
+      lightStone("██║  ██╗") + "  " + lightStone("██║  ██║") + " " + lightStone("██║") + "  " + lightStone("██║  ██║") + "  " + lightStone("██║ ╚████║"),
+      lightStone("╚═╝  ╚═╝") + "  " + lightStone("╚═╝  ╚═╝") + " " + lightStone("╚═╝") + "  " + lightStone("╚═╝  ╚═╝") + "  " + lightStone("╚═╝  ╚═══╝"),
+    ];
+    console.log("");
+    for (const line of KAIRN_WORDMARK) {
+      console.log("  " + line);
+    }
+    if (subtitle) {
+      console.log(dimStone(`  ${subtitle}`));
+    }
+    console.log("");
+  },
+  compactBanner: (subtitle?: string) => {
+    const line = maroon("━").repeat(52);
+    console.log(`  ${line}`);
+    console.log(`  ${maroon("  ◆")} ${chalk.bold.rgb(139, 0, 0)("KAIRN")}` + (subtitle ? ` ${dimStone("— " + subtitle)}` : ""));
+    console.log(`  ${line}`);
   },
 
-  // Sections
-  section: (title: string) => `\n  ${warm("━━")} ${chalk.bold(title)} ${warm("━".repeat(Math.max(0, 44 - title.length)))}`,
+  // Section headers
+  section: (title: string) => {
+    const len = chalk.dim(title).length;
+    const line = "━".repeat(Math.max(0, 48 - len));
+    return `\n  ${warmStone("━━")} ${chalk.bold(title)} ${chalk.dim(warmStone(line))}`;
+  },
 
-  // Status
+  // Status messages
   success: (text: string) => chalk.green(`  ✓ ${text}`),
   warn: (text: string) => chalk.yellow(`  ⚠ ${text}`),
   error: (text: string) => chalk.red(`  ✗ ${text}`),
@@ -31,7 +57,7 @@ export const ui = {
   file: (path: string) => chalk.dim(`    ${path}`),
 
   // Tool display
-  tool: (name: string, reason: string) => `    ${warm("●")} ${chalk.bold(name)}\n      ${chalk.dim(reason)}`,
+  tool: (name: string, reason: string) => `    ${warmStone("●")} ${chalk.bold(name)}\n      ${chalk.dim(reason)}`,
 
   // Divider
   divider: () => chalk.dim(`  ${"─".repeat(50)}`),
@@ -39,21 +65,25 @@ export const ui = {
   // Command suggestion
   cmd: (command: string) => `    ${chalk.bold.white("$ " + command)}`,
 
-  // Env var setup
-  envVar: (name: string, desc: string, url?: string) => {
-    let out = `    ${chalk.bold(`export ${name}=`)}${chalk.dim('"your-key-here"')}\n`;
-    out += chalk.dim(`      ${desc}`);
-    if (url) out += `\n      ${chalk.dim("Get one at:")} ${warm(url)}`;
+  // Env var setup with signupUrl
+  envVarPrompt: (name: string, desc: string, url?: string) => {
+    let out = `  ${chalk.bold(name)}${chalk.dim(` (${desc})`)}`;
+    if (url) out += `\n    ${chalk.dim("Get one at:")} ${warmStone(url)}`;
     return out;
   },
 
-  // Clarification question display
-  question: (q: string, suggestion: string) =>
-    `  ${warm("?")} ${chalk.bold(q)}\n    ${chalk.dim(`suggested: ${suggestion}`)}`,
+  // Clarification question
+  question: (q: string, suggestion?: string) => {
+    let msg = `  ${warmStone("?")} ${chalk.bold(q)}`;
+    if (suggestion) {
+      msg += `\n    ${chalk.dim(`(suggested: ${suggestion})`)}`;
+    }
+    return msg;
+  },
 
-  // Branded error box
+  // Error box for compile failures
   errorBox: (title: string, message: string) => {
     const line = "─".repeat(50);
-    return `\n  ${chalk.red("┌" + line + "┐")}\n  ${chalk.red("│")} ${chalk.red.bold(title.padEnd(49))}${chalk.red("│")}\n  ${chalk.red("└" + line + "┘")}\n\n  ${chalk.red("✗")} ${message}\n`;
+    return chalk.red(`\n  ┌${line}┐\n  │ ${title.padEnd(49)}│\n  │ ${message.padEnd(49)}│\n  └${line}┘\n`);
   },
 };

@@ -180,8 +180,7 @@ export const describeCommand = new Command("describe")
       for (const file of written) {
         console.log(ui.file(file));
       }
-
-      // Interactive key collection or quick-mode placeholder .env
+      // Handle .env file generation and key collection
       if (hasEnvVars) {
         if (options.quick) {
           await writeEmptyEnvFile(summary.envSetup, targetDir);
