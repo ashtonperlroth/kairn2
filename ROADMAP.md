@@ -2,6 +2,8 @@
 
 > From local CLI to the coordination layer for agent environments.
 
+Each version milestone links to a detailed design doc in `docs/design/` with implementation specifics.
+
 ---
 
 ## v1.x — Local CLI (Current)
@@ -16,26 +18,36 @@
 - [x] Security rules and deny lists by default
 - [x] Session continuity patterns (help, tasks, decisions, learnings)
 
-### v1.1.0 ✅
+### v1.2.0 ✅
 - [x] `kairn optimize` — scan existing codebases, audit and optimize harnesses
 - [x] Project scanner (language, framework, deps, scripts, env keys, CI/CD)
 - [x] Harness auditor (CLAUDE.md quality, missing commands/rules, MCP bloat)
+- [x] Post-setup instructions with API key requirements and signup URLs
 - [x] Correct model IDs + backward-compatible config migration
 
-### v1.2.0
-- [ ] Template gallery — pre-built environments for common workflows
-- [ ] `kairn templates` — browse and activate templates
-- [ ] `kairn optimize --diff` — preview changes before writing
-- [ ] Monorepo and multi-project scanner improvements
+### v1.3.0 — Environment Quality ([design doc](docs/design/v1.3-environment-quality.md))
+- [ ] Structured CLAUDE.md template (7-section format enforced by compilation prompt)
+- [ ] Shell-integrated commands (`!git diff`, `!npm test` in slash commands)
+- [ ] Path-scoped rules with YAML frontmatter (api, testing, frontend)
+- [ ] Hooks in settings.json (auto-format, block-destructive, protect-secrets)
+- [ ] `/project:status` and `/project:fix` commands
+- [ ] Expanded registry (25-30 tools: Sentry, Vercel, Docker, SQLite, Chrome DevTools)
+- [ ] Improved TDD skill with subagent isolation pattern
 
-### v1.3.0
+### v1.4.0 — Advanced Patterns ([design doc](docs/design/v1.4-advanced-patterns.md))
+- [ ] Sprint contract pattern (`/project:sprint` — define acceptance criteria)
+- [ ] Evaluator/tester agent (Playwright-based QA)
+- [ ] PostCompact hook for context re-injection
+- [ ] Context budget enforcement in compilation prompt
+- [ ] `kairn optimize --diff` — preview changes before writing
 - [ ] `kairn doctor` — validate environments against Claude Code spec
+
+### v1.5.0 — Templates & Registry
+- [ ] Template gallery — pre-built environments (Next.js, API, Research, Content)
+- [ ] `kairn templates` — browse and activate templates
 - [ ] Registry management (`kairn registry list`, `kairn registry add`)
 - [ ] Community tool submissions
-
-### v1.4.0
 - [ ] Hermes runtime adapter
-- [ ] Cross-runtime support (`kairn describe --runtime hermes`)
 
 ---
 
