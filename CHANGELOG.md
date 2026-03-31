@@ -7,6 +7,23 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [1.9.0] — 2026-03-31
+
+### Added
+- **Autonomy level selection** — `kairn describe` prompts for autonomy level (1-4) during setup; `--quick` defaults to Level 1
+- **Level 1 (Guided):** `/project:tour` command (interactive environment walkthrough), SessionStart welcome hook, `QUICKSTART.md` doc, workflow reference in CLAUDE.md
+- **Level 2 (Assisted):** `/project:loop` command (workflow-specific automated cycle with approval gates), `@pm` agent (plans, specs, prioritizes — does not code)
+- **Level 3 (Autonomous):** `/project:auto` command (PM-driven loop with worktree isolation and PR delivery)
+- **Level 4 (Full Auto):** `/project:autopilot` command (continuous execution with stop conditions: max 5 features, test failure, Escape)
+- **`src/autonomy.ts` module** — deterministic generation of level-specific commands, agents, hooks, and docs
+- **Compiler prompt updated** — LLM tailors CLAUDE.md workflow sections based on autonomy level
+
+### Changed
+- **`EnvironmentSpec` type** — added `autonomy_level` field (1-4, defaults to 1)
+- **Adapter** — applies autonomy-level content before writing files
+
+---
+
 ## [1.8.0] — 2026-03-31
 
 ### Added
