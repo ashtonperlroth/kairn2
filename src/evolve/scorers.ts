@@ -76,10 +76,15 @@ export async function passFailScorer(
   }
 
   // Fallback: check stderr for error indicators
+  // Strip lines from setup (prefixed with [setup]) — these are not Claude's errors
+  const filteredStderr = stderr
+    .split('\n')
+    .filter(line => !line.startsWith('[setup]'))
+    .join('\n');
   const hasErrors =
-    stderr.toLowerCase().includes('error') ||
-    stderr.toLowerCase().includes('failed') ||
-    stderr.toLowerCase().includes('exception');
+    filteredStderr.toLowerCase().includes('error') ||
+    filteredStderr.toLowerCase().includes('failed') ||
+    filteredStderr.toLowerCase().includes('exception');
   const passed = !hasErrors;
 
   return {
