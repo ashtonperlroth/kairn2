@@ -4,7 +4,7 @@ import ora from 'ora';
 import fs from 'fs/promises';
 import path from 'path';
 import { parse as yamlParse } from 'yaml';
-import { confirm, select } from '@inquirer/prompts';
+import { confirm, input, select } from '@inquirer/prompts';
 import { ui } from '../ui.js';
 import { autoGenerateTasks, createEvolveWorkspace, writeTasksFile, buildProjectProfile } from '../evolve/init.js';
 import { generateTasksFromTemplates, EVAL_TEMPLATES, selectTemplatesForWorkflow } from '../evolve/templates.js';
@@ -211,7 +211,8 @@ evolveCommand
   .option('--max-task-drop <n>', 'Roll back if any task drops more than N points', '20')
   .option('--principal', 'Run Principal Proposer as final iteration')
   .option('--eval-sample <n>', 'Sample N tasks per middle iteration (0 = all)', '0')
-  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string; principal?: boolean; evalSample?: string }) => {
+  .option('-i, --interactive', 'Configure evolution settings interactively')
+  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string; principal?: boolean; evalSample?: string; interactive?: boolean }) => {
     try {
       const projectRoot = process.cwd();
       const workspace = path.join(projectRoot, '.kairn-evolve');
@@ -292,58 +293,115 @@ evolveCommand
         }
 
         const evolveConfig = await loadEvolveConfigFromWorkspace(workspace);
-        const iterations = parseInt(options.iterations ?? '5', 10);
-        if (isNaN(iterations) || iterations < 1) {
-          console.log(ui.error('--iterations must be a positive integer'));
-          process.exit(1);
-        }
-        evolveConfig.maxIterations = iterations;
 
-        const runs = parseInt(options.runs ?? '1', 10);
-        if (isNaN(runs) || runs < 1) {
-          console.log(ui.error('--runs must be a positive integer'));
-          process.exit(1);
-        }
-        evolveConfig.runsPerTask = runs;
+        if (options.interactive) {
+          // Interactive configuration menu
+          console.log(chalk.dim('  Configure evolution settings:\n'));
 
-        const parallel = parseInt(options.parallel ?? '1', 10);
-        if (isNaN(parallel) || parallel < 1) {
-          console.log(ui.error('--parallel must be a positive integer'));
-          process.exit(1);
-        }
-        evolveConfig.parallelTasks = parallel;
+          const preset = await select({
+            message: 'Evolution preset',
+            choices: [
+              { name: 'Quick (3 iterations, 1 run, no extras)', value: 'quick' },
+              { name: 'Standard (5 iterations, 1 run, parallel)', value: 'standard' },
+              { name: 'Rigorous (5 iterations, 3 runs, parallel, principal)', value: 'rigorous' },
+              { name: 'Custom (configure each setting)', value: 'custom' },
+            ],
+          });
 
-        const maxMutations = parseInt(options.maxMutations ?? '3', 10);
-        if (isNaN(maxMutations) || maxMutations < 1) {
-          console.log(ui.error('--max-mutations must be a positive integer'));
-          process.exit(1);
-        }
-        evolveConfig.maxMutationsPerIteration = maxMutations;
+          if (preset === 'quick') {
+            evolveConfig.maxIterations = 3;
+            evolveConfig.runsPerTask = 1;
+            evolveConfig.parallelTasks = 3;
+          } else if (preset === 'standard') {
+            evolveConfig.maxIterations = 5;
+            evolveConfig.runsPerTask = 1;
+            evolveConfig.parallelTasks = 5;
+          } else if (preset === 'rigorous') {
+            evolveConfig.maxIterations = 5;
+            evolveConfig.runsPerTask = 3;
+            evolveConfig.parallelTasks = 5;
+            evolveConfig.usePrincipal = true;
+          } else {
+            evolveConfig.maxIterations = parseInt(
+              await input({ message: 'Iterations', default: '5' }), 10) || 5;
+            evolveConfig.runsPerTask = parseInt(
+              await input({ message: 'Runs per task (variance)', default: '1' }), 10) || 1;
+            evolveConfig.parallelTasks = parseInt(
+              await input({ message: 'Parallel tasks', default: '3' }), 10) || 3;
+            evolveConfig.maxMutationsPerIteration = parseInt(
+              await input({ message: 'Max mutations per iteration', default: '3' }), 10) || 3;
+            evolveConfig.pruneThreshold = parseInt(
+              await input({ message: 'Prune threshold (%)', default: '95' }), 10) || 95;
+            evolveConfig.maxTaskDrop = parseInt(
+              await input({ message: 'Max task drop (rollback guard)', default: '20' }), 10) || 20;
+            evolveConfig.usePrincipal = await confirm({
+              message: 'Run Principal Proposer at end?', default: false,
+            });
+            evolveConfig.evalSampleSize = parseInt(
+              await input({ message: 'Eval sample size (0 = all)', default: '0' }), 10) || 0;
+          }
 
-        const pruneThreshold = parseInt(options.pruneThreshold ?? '95', 10);
-        if (isNaN(pruneThreshold) || pruneThreshold < 0 || pruneThreshold > 100) {
-          console.log(ui.error('--prune-threshold must be 0-100'));
-          process.exit(1);
-        }
-        evolveConfig.pruneThreshold = pruneThreshold;
+          console.log('');
+          console.log(chalk.dim(`  Iterations: ${evolveConfig.maxIterations}, Runs: ${evolveConfig.runsPerTask}, Parallel: ${evolveConfig.parallelTasks}`));
+          console.log(chalk.dim(`  Mutations: ${evolveConfig.maxMutationsPerIteration}, Prune: ${evolveConfig.pruneThreshold}%, Guard: ${evolveConfig.maxTaskDrop}pt`));
+          if (evolveConfig.usePrincipal) console.log(chalk.dim('  Principal Proposer: enabled'));
+          if (evolveConfig.evalSampleSize > 0) console.log(chalk.dim(`  Eval sampling: ${evolveConfig.evalSampleSize} tasks/iter`));
+          console.log('');
+        } else {
+          // Flag-based configuration
+          const iterations = parseInt(options.iterations ?? '5', 10);
+          if (isNaN(iterations) || iterations < 1) {
+            console.log(ui.error('--iterations must be a positive integer'));
+            process.exit(1);
+          }
+          evolveConfig.maxIterations = iterations;
 
-        const maxTaskDrop = parseInt(options.maxTaskDrop ?? '20', 10);
-        if (isNaN(maxTaskDrop) || maxTaskDrop < 1) {
-          console.log(ui.error('--max-task-drop must be a positive integer'));
-          process.exit(1);
-        }
-        evolveConfig.maxTaskDrop = maxTaskDrop;
+          const runs = parseInt(options.runs ?? '1', 10);
+          if (isNaN(runs) || runs < 1) {
+            console.log(ui.error('--runs must be a positive integer'));
+            process.exit(1);
+          }
+          evolveConfig.runsPerTask = runs;
 
-        if (options.principal) {
-          evolveConfig.usePrincipal = true;
-        }
+          const parallel = parseInt(options.parallel ?? '1', 10);
+          if (isNaN(parallel) || parallel < 1) {
+            console.log(ui.error('--parallel must be a positive integer'));
+            process.exit(1);
+          }
+          evolveConfig.parallelTasks = parallel;
 
-        const evalSample = parseInt(options.evalSample ?? '0', 10);
-        if (isNaN(evalSample) || evalSample < 0) {
-          console.log(ui.error('--eval-sample must be a non-negative integer'));
-          process.exit(1);
+          const maxMutations = parseInt(options.maxMutations ?? '3', 10);
+          if (isNaN(maxMutations) || maxMutations < 1) {
+            console.log(ui.error('--max-mutations must be a positive integer'));
+            process.exit(1);
+          }
+          evolveConfig.maxMutationsPerIteration = maxMutations;
+
+          const pruneThreshold = parseInt(options.pruneThreshold ?? '95', 10);
+          if (isNaN(pruneThreshold) || pruneThreshold < 0 || pruneThreshold > 100) {
+            console.log(ui.error('--prune-threshold must be 0-100'));
+            process.exit(1);
+          }
+          evolveConfig.pruneThreshold = pruneThreshold;
+
+          const maxTaskDrop = parseInt(options.maxTaskDrop ?? '20', 10);
+          if (isNaN(maxTaskDrop) || maxTaskDrop < 1) {
+            console.log(ui.error('--max-task-drop must be a positive integer'));
+            process.exit(1);
+          }
+          evolveConfig.maxTaskDrop = maxTaskDrop;
+
+          if (options.principal) {
+            evolveConfig.usePrincipal = true;
+          }
+
+          const evalSample = parseInt(options.evalSample ?? '0', 10);
+          if (isNaN(evalSample) || evalSample < 0) {
+            console.log(ui.error('--eval-sample must be a non-negative integer'));
+            process.exit(1);
+          }
+          evolveConfig.evalSampleSize = evalSample;
         }
-        evolveConfig.evalSampleSize = evalSample;
 
         // Verify baseline exists
         try {
