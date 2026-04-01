@@ -39,6 +39,7 @@ export async function applyMutations(
       if (!content.includes(mutation.oldText)) {
         continue;
       }
+      // Replace first occurrence only — intentional for surgical mutations
       await fs.writeFile(
         filePath,
         content.replace(mutation.oldText, mutation.newText),

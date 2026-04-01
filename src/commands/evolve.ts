@@ -274,7 +274,12 @@ evolveCommand
         }
 
         const evolveConfig = await loadEvolveConfigFromWorkspace(workspace);
-        evolveConfig.maxIterations = parseInt(options.iterations ?? '5', 10);
+        const iterations = parseInt(options.iterations ?? '5', 10);
+        if (isNaN(iterations) || iterations < 1) {
+          console.log(ui.error('--iterations must be a positive integer'));
+          process.exit(1);
+        }
+        evolveConfig.maxIterations = iterations;
 
         // Verify baseline exists
         try {
