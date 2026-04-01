@@ -200,6 +200,13 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] Variance controls: `--runs N` runs each task N times, reports mean ± stddev per task
 - [ ] **Proof artifact:** before/after comparison showing evolved harness outperforms static on a held-out task (deferred to v2.3.0)
 
+### v2.2.5 ✅ SHIPPED
+> Parallel task evaluation — the single biggest wall-clock speedup for evolution runs.
+
+- [x] Parallel task evaluation: `--parallel N` runs up to N tasks concurrently (promise-based, native)
+- [x] `runWithConcurrency` utility with configurable concurrency limit
+- [x] Backward compatible: `--parallel 1` (default) = sequential, identical to prior behavior
+
 ### v2.3.0 — Eval Quality & Measurement Rigor [NEXT]
 > The evolution loop is only as good as its eval signal. Before adding features, make measurement trustworthy.
 
@@ -210,7 +217,7 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [ ] Custom scoring functions (user-defined scoring scripts in `.kairn-evolve/`)
 
 **Iteration Speed:**
-- [ ] Parallel task evaluation (promise-based, concurrency-limited) — 20 min → 5 min per iteration
+- [x] ~~Parallel task evaluation~~ — shipped in v2.2.5
 - [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads — ~85% token savings)
 - [ ] Cost tracking per iteration (total tokens, USD cost, wall time) in report
 
