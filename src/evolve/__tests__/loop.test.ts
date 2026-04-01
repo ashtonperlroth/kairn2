@@ -53,6 +53,8 @@ function makeEvolveConfig(overrides: Partial<EvolveConfig> = {}): EvolveConfig {
     maxMutationsPerIteration: 3,
     pruneThreshold: 95,
     maxTaskDrop: 20,
+    usePrincipal: false,
+    evalSampleSize: 0,
     ...overrides,
   };
 }
@@ -1134,5 +1136,114 @@ describe('evolve', () => {
     // No rollback — aggregate improved and no task dropped >20
     expect(result.bestScore).toBe(75);
     expect(result.bestIteration).toBe(1);
+  });
+
+  it('runs Principal Proposer after normal loop when usePrincipal is true', async () => {
+    const workspace = await createWorkspace([0, 1]);
+    const tasks = [makeTask('task-1')];
+
+    // Iteration 0: score 60
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: { 'task-1': { pass: false, score: 60 } },
+      aggregate: 60,
+    });
+    mockPropose.mockResolvedValueOnce(makeProposal());
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    // Iteration 1: score 75
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: { 'task-1': { pass: true, score: 75 } },
+      aggregate: 75,
+    });
+
+    // Principal proposer: synthesizes from baseline, score 85
+    mockPropose.mockResolvedValueOnce(makeProposal({ reasoning: 'Principal synthesis' }));
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '2', 'harness'),
+      diffPatch: 'principal diff',
+    });
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: { 'task-1': { pass: true, score: 85 } },
+      aggregate: 85,
+    });
+
+    const result = await evolve(
+      workspace,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({ maxIterations: 2, usePrincipal: true }),
+    );
+
+    // Principal beat the best iteration
+    expect(result.bestScore).toBe(85);
+    expect(result.iterations).toHaveLength(3); // 2 normal + 1 principal
+  });
+
+  it('does not run Principal when usePrincipal is false (default)', async () => {
+    const workspace = await createWorkspace([0]);
+    const tasks = [makeTask('task-1')];
+
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: { 'task-1': { pass: true, score: 80 } },
+      aggregate: 80,
+    });
+
+    const result = await evolve(
+      workspace,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({ maxIterations: 1, usePrincipal: false }),
+    );
+
+    expect(result.iterations).toHaveLength(1);
+    // Proposer not called at all (single iteration, no principal)
+    expect(mockPropose).not.toHaveBeenCalled();
+  });
+
+  it('Principal does not replace best if it scores lower', async () => {
+    const workspace = await createWorkspace([0, 1]);
+    const tasks = [makeTask('task-1')];
+
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: { 'task-1': { pass: false, score: 60 } },
+      aggregate: 60,
+    });
+    mockPropose.mockResolvedValueOnce(makeProposal());
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    // Iteration 1: score 90
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: { 'task-1': { pass: true, score: 90 } },
+      aggregate: 90,
+    });
+
+    // Principal: only scores 70 — worse than best
+    mockPropose.mockResolvedValueOnce(makeProposal({ reasoning: 'Bad synthesis' }));
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '2', 'harness'),
+      diffPatch: 'principal diff',
+    });
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: { 'task-1': { pass: true, score: 70 } },
+      aggregate: 70,
+    });
+
+    const result = await evolve(
+      workspace,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({ maxIterations: 2, usePrincipal: true }),
+    );
+
+    // Best remains iteration 1, not the principal
+    expect(result.bestScore).toBe(90);
+    expect(result.bestIteration).toBe(1);
+    expect(result.iterations).toHaveLength(3);
   });
 });

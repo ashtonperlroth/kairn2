@@ -330,6 +330,64 @@ export async function evolve(
     history.push(iterLog);
   }
 
+  // PRINCIPAL PROPOSER: after normal loop, synthesize the best harness from all learnings
+  if (evolveConfig.usePrincipal && history.length >= 2) {
+    onProgress?.({ type: 'proposing', iteration: history.length, message: 'Principal Proposer synthesizing final harness' });
+
+    const baselineHarnessPath = path.join(workspacePath, 'iterations', '0', 'harness');
+    try {
+      const principalProposal = await propose(
+        history.length,
+        workspacePath,
+        baselineHarnessPath,
+        history,
+        tasks,
+        kairnConfig,
+        evolveConfig.proposerModel,
+      );
+
+      if (principalProposal.mutations.length > evolveConfig.maxMutationsPerIteration) {
+        principalProposal.mutations = principalProposal.mutations.slice(0, evolveConfig.maxMutationsPerIteration);
+      }
+
+      const principalIterNum = history.length;
+      const principalIterDir = path.join(workspacePath, 'iterations', principalIterNum.toString());
+      const mutResult = await applyMutations(baselineHarnessPath, principalIterDir, principalProposal.mutations);
+
+      onProgress?.({ type: 'iteration-start', iteration: principalIterNum });
+      const { results: principalResults, aggregate: principalAggregate } = await evaluateAll(
+        tasks,
+        mutResult.newHarnessPath,
+        workspacePath,
+        principalIterNum,
+        kairnConfig,
+        onProgress,
+        evolveConfig.runsPerTask,
+        evolveConfig.parallelTasks,
+      );
+      onProgress?.({ type: 'iteration-scored', iteration: principalIterNum, score: principalAggregate });
+
+      const principalLog: IterationLog = {
+        iteration: principalIterNum,
+        score: principalAggregate,
+        taskResults: principalResults,
+        proposal: principalProposal,
+        diffPatch: mutResult.diffPatch,
+        timestamp: new Date().toISOString(),
+      };
+      await writeIterationLog(workspacePath, principalLog);
+      history.push(principalLog);
+
+      if (principalAggregate > bestScore) {
+        bestScore = principalAggregate;
+        bestIteration = principalIterNum;
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      onProgress?.({ type: 'proposer-error', iteration: history.length, message: `Principal failed: ${errMsg}` });
+    }
+  }
+
   onProgress?.({
     type: 'complete',
     iteration: history.length > 0 ? history.length - 1 : 0,
