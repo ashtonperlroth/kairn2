@@ -1,8 +1,10 @@
 import fs from 'fs/promises';
 import path from 'path';
+import type { HarnessSnapshot } from './types.js';
 
 /**
  * Creates a baseline snapshot of the .claude/ directory.
+ * Copies to both baseline/ and iterations/0/harness/ in the workspace.
  */
 export async function snapshotBaseline(
   projectRoot: string,
@@ -10,22 +12,23 @@ export async function snapshotBaseline(
 ): Promise<void> {
   const claudeDir = path.join(projectRoot, '.claude');
   const baselineDir = path.join(workspacePath, 'baseline');
+  const iter0Dir = path.join(workspacePath, 'iterations', '0', 'harness');
 
-  // Check if .claude exists
   try {
     await fs.access(claudeDir);
   } catch {
     throw new Error(`.claude/ directory not found in ${projectRoot}`);
   }
 
-  // Recursively copy .claude/ to baseline/
   await copyDir(claudeDir, baselineDir);
+  await copyDir(claudeDir, iter0Dir);
 }
 
 /**
- * Recursively copy directory.
+ * Recursively copies a directory from src to dest.
+ * Creates dest (and any missing parent directories) if it does not exist.
  */
-async function copyDir(src: string, dest: string): Promise<void> {
+export async function copyDir(src: string, dest: string): Promise<void> {
   await fs.mkdir(dest, { recursive: true });
   const entries = await fs.readdir(src, { withFileTypes: true });
 
@@ -39,4 +42,21 @@ async function copyDir(src: string, dest: string): Promise<void> {
       await fs.copyFile(srcPath, destPath);
     }
   }
+}
+
+/**
+ * Loads a HarnessSnapshot from a harness directory path.
+ * Verifies the directory exists before returning.
+ */
+export async function loadHarnessSnapshot(
+  harnessDir: string,
+  iteration: number,
+): Promise<HarnessSnapshot> {
+  try {
+    await fs.access(harnessDir);
+  } catch {
+    throw new Error(`Harness directory not found: ${harnessDir}`);
+  }
+
+  return { path: harnessDir, iteration };
 }
