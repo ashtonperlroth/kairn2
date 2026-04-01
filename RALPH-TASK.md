@@ -118,22 +118,19 @@ Repeat max 3 times. If still failing, stop and report.
 
 ---
 
-## For v2.2.1 Specifically
+## For v2.2.2 Specifically
 
-The design doc is in `docs/design/v2.0-kairn-evolve.md` (section v2.2.1 — Proposer JSON Fix + Mutation Scope Expansion).
+The design doc is in `docs/design/v2.0-kairn-evolve.md` (section v2.2.1 — Proposer JSON Fix + Mutation Scope Expansion) — shows the exact failure + two-layer fix strategy.
 
-Bug report: `.omc/evolve-bugs.md` (Bugs 3, 4, 5) + latest test run output showing proposer JSON failure.
+Bug report: Latest test run post-v2.2.1 showing proposer JSON failure.
 
 **THE #1 BLOCKER:** The proposer returns English prose instead of JSON. No mutations have EVER been applied across any test run. The loop "runs" but never "evolves." This must be fixed first.
 
-Key fixes (priority order):
+**Exactly what to fix:**
 1. **CRITICAL — Proposer JSON:** Add `jsonMode` to `callLLM()` with Anthropic assistant prefill (`{ role: "assistant", content: "{" }`) and OpenAI `response_format`. Also make `parseProposerResponse()` extract JSON from prose as fallback.
-2. Bug 3: Add `delete_section` and `delete_file` mutation actions (types.ts, mutator.ts, proposer parser)
-3. Bug 4: Include `.mcp.json` in harness scope (baseline.ts, runner.ts, proposer reads it automatically)
-4. Bug 5: Rebalance proposer prompt — remove "Prefer ADDITIVE" bias, list all 5 actions, strengthen JSON instruction
 
-This is a patch release — no new CLI commands. Internal fixes to make the loop actually evolve.
+This is a patch release — no new CLI commands. Just the JSON fix. Mutation scope expansion (delete mutations, MCP scope) will be v2.2.3.
 
-Builds on v2.2.0: modifies `callLLM()` in `src/llm.ts`, `Mutation` type, `applyMutations()`, `createBaseline()`, `createIsolatedWorkspace()`, `parseProposerResponse()`, `PROPOSER_SYSTEM_PROMPT`.
+Builds on v2.2.1: modifies `callLLM()` in `src/llm.ts` and `parseProposerResponse()` in `src/evolve/proposer.ts`.
 
-PLAN-v2.2.1.md has 9 steps grouped into 2 parallel groups (A: 5 parallel, B: 4 after A).
+PLAN-v2.2.1.md (renamed from v2.2.1 plan) has 4 steps grouped into 2 parallel groups (A: 2 parallel, B: 2 after A).

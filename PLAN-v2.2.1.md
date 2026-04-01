@@ -1,6 +1,6 @@
-# PLAN-v2.2.1 — Proposer JSON Fix + Mutation Scope Expansion
+# PLAN-v2.2.2 — Proposer JSON Fix (Critical Blocker)
 
-**Goal:** Fix the #1 blocker (proposer returns English instead of JSON, meaning no mutations are ever applied) AND expand the mutation vocabulary so the loop can remove bloat and optimize MCP config.
+**Goal:** Fix the #1 blocker discovered in post-v2.2.1 testing: proposer returns English instead of JSON, meaning no mutations are ever applied despite the loop running successfully.
 
 **Design doc:** `docs/design/v2.0-kairn-evolve.md` (Section: v2.2.1 — Mutation Scope Expansion)
 
@@ -18,13 +18,13 @@ Error: "Proposer returned invalid JSON: Looking at the traces, I need to analyze
 
 **Depends on:** v2.2.0 — specifically: `callLLM()`, `Mutation` type, `applyMutations()`, `propose()`, `createBaseline()`, `createIsolatedWorkspace()`, `parseProposerResponse()`
 
-**Estimated complexity:** Medium (9 steps, 2 parallel groups)
+**Estimated complexity:** Small (4 steps, 2 groups)
 
 ---
 
 ## Implementation Steps
 
-### Step 1: Add JSON Mode to callLLM [parallel-safe]
+### Step 1: Add JSON Mode to callLLM [parallel-safe] ⭐ CRITICAL
 
 **What to build:** Add an optional `jsonMode` parameter to `callLLM()` that enables structured JSON output from the provider.
 
@@ -61,7 +61,7 @@ npm test -- src/__tests__/llm.test.ts
 
 ---
 
-### Step 2: Robust JSON Extraction in Parser [parallel-safe]
+### Step 2: Robust JSON Extraction in Parser [parallel-safe] ⭐ CRITICAL
 
 **What to build:** Make `parseProposerResponse()` tolerant of prose-wrapped JSON. If the raw response contains JSON embedded in English text, extract it.
 
@@ -123,141 +123,13 @@ npm test -- src/evolve/__tests__/proposer.test.ts
 
 ---
 
-### Step 4: Expand Mutation Type [parallel-safe]
+### Step 4: Tests [depends-on: 1, 2, 3]
 
-**What to build:** Add `delete_section` and `delete_file` to the `Mutation.action` union type.
-
-**Files to modify:**
-- `src/evolve/types.ts`
-
-**Key implementation details:**
-- Change `action: 'replace' | 'add_section' | 'create_file'` → `action: 'replace' | 'add_section' | 'create_file' | 'delete_section' | 'delete_file'`
-- `delete_section`: requires `oldText` (the text to remove), `newText` should be empty string
-- `delete_file`: only requires `file` and `rationale`, `newText` can be empty string
-- No other type changes needed — `oldText` is already optional
-
-**Verification command:**
-```bash
-npm run build
-npm run typecheck
-```
-
-**Commit message:** `feat(evolve): add delete_section and delete_file mutation actions`
-
----
-
-### Step 5: Implement Delete Handlers in Mutator [depends-on: 4]
-
-**What to build:** Handle the two new mutation actions in `applyMutations()`.
-
-**Files to modify:**
-- `src/evolve/mutator.ts`
-
-**Key implementation details:**
-- After the `create_file` branch in the if/else chain, add:
-  - `delete_section`: Read file, verify `oldText` exists in content, replace `oldText` with empty string, write back. Skip if `oldText` is missing or not found in file.
-  - `delete_file`: `await fs.rm(filePath, { force: true })`. Use `force: true` so missing files don't throw.
-- Security: path traversal check (`..`) already exists above — new actions inherit it
-- The `generateDiff` function already handles deleted files (shows all lines as `-`)
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/mutator.test.ts
-```
-
-**Commit message:** `feat(evolve): implement delete_section and delete_file in mutator`
-
----
-
-### Step 6: Update Proposer JSON Parser for Delete Actions [depends-on: 4]
-
-**What to build:** Allow `parseProposerResponse()` to accept the new action types.
-
-**Files to modify:**
-- `src/evolve/proposer.ts`
-
-**Key implementation details:**
-- In `parseProposerResponse()`, the action validation currently does:
-  ```typescript
-  if (action !== 'replace' && action !== 'add_section' && action !== 'create_file') {
-    continue;
-  }
-  ```
-  Add `'delete_section'` and `'delete_file'` to the valid set.
-- For `delete_section`, require `oldText` (same as `replace`)
-- For `delete_file`, `oldText` is not required
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/proposer.test.ts
-```
-
-**Commit message:** `feat(evolve): accept delete mutations in proposer response parser`
-
----
-
-### Step 7: MCP in Harness Scope [parallel-safe]
-
-**What to build:** Include `.mcp.json` in harness baseline, runner workspace deployment, and proposer reading.
-
-**Files to modify:**
-- `src/evolve/baseline.ts` — copy `.mcp.json` into harness snapshot as `mcp.json`
-- `src/evolve/runner.ts` — deploy harness `mcp.json` as `.mcp.json` in workspace root
-
-**Key implementation details:**
-- **Baseline:** After copying `.claude/` to `iterations/0/harness/`, check for `.mcp.json` at project root. If exists, copy to `iterations/0/harness/mcp.json`. If not, skip silently.
-- **Runner:** In `createIsolatedWorkspace()`, after `.claude/` swap, check if harness has `mcp.json` and copy to `.mcp.json` at workspace root. Handle both worktree and copy paths.
-- **Proposer:** `buildProposerUserMessage()` already reads all harness files via `readHarnessFiles()` — it will automatically include `mcp.json` once it's in the harness directory.
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/baseline.test.ts
-npm test -- src/evolve/__tests__/runner.test.ts
-```
-
-**Commit message:** `feat(evolve): include .mcp.json in harness scope (baseline + runner)`
-
----
-
-### Step 8: Rebalance Proposer Prompt [parallel-safe]
-
-**What to build:** Update the proposer system prompt to consider removals, list all mutation actions, and mention MCP optimization.
-
-**Files to modify:**
-- `src/evolve/proposer.ts`
-
-**Key implementation details:**
-- Replace the `## Rules` section of `PROPOSER_SYSTEM_PROMPT`:
-  - Remove: `"Prefer ADDITIVE changes over replacements when possible."`
-  - Add: Balanced guidance for both additions AND removals
-  - List all 5 mutation actions: `replace`, `add_section`, `create_file`, `delete_section`, `delete_file`
-  - Add MCP guidance: "If mcp.json is in the harness, you can optimize MCP server configuration"
-  - Add lean harness principle: "Leaner harnesses perform better — fewer tokens consumed means more context for the actual task"
-- Update the `## Output Format` JSON example to show a delete_section example mutation
-- Strengthen JSON formatting instruction: replace `"Return ONLY valid JSON."` with `"Return ONLY a valid JSON object. No text before or after. No markdown code fences. Start your response with { and end with }."`
-
-**Verification command:**
-```bash
-npm run build
-npm test -- src/evolve/__tests__/proposer.test.ts
-```
-
-**Commit message:** `feat(evolve): rebalance proposer prompt for add/remove and strengthen JSON instruction`
-
----
-
-### Step 9: Tests [depends-on: all above]
-
-**What to build:** Comprehensive tests for all changes.
+**What to build:** Tests for JSON mode, robust extraction, and proposer wire.
 
 **Files to modify:**
 - `src/__tests__/llm.test.ts`
-- `src/evolve/__tests__/mutator.test.ts`
 - `src/evolve/__tests__/proposer.test.ts`
-- `src/evolve/__tests__/baseline.test.ts`
 
 **Key test scenarios:**
 
@@ -269,56 +141,39 @@ npm test -- src/evolve/__tests__/proposer.test.ts
 **Proposer parser tests (critical — these cover the exact failure mode):**
 - Raw JSON string → parses correctly (existing)
 - JSON in markdown fences → parses correctly (existing)
-- English text THEN JSON → extracts JSON from prose (**NEW — this is the test run failure**)
+- English text THEN JSON → extracts JSON from prose (**NEW — this is the blocker**)
+  - Example: `"Looking at the traces... { \"reasoning\": \"...\", \"mutations\": [...] }"` → extracts and parses
 - English text with no JSON at all → throws meaningful error
-- `parseProposerResponse` accepts `delete_section` action with oldText
-- `parseProposerResponse` accepts `delete_file` action without oldText
-- `parseProposerResponse` rejects `delete_section` without oldText
-- System prompt contains all 5 action types
-- System prompt does NOT contain "Prefer ADDITIVE"
-- System prompt contains stronger JSON instruction
-
-**Mutator tests:**
-- `delete_section` removes matching text from file
-- `delete_section` skips if oldText not found
-- `delete_file` removes the file
-- `delete_file` on non-existent file doesn't throw
-
-**Baseline tests:**
-- Snapshot includes `mcp.json` when `.mcp.json` exists
-- Snapshot works without `.mcp.json`
+- System prompt includes `jsonMode` instruction
 
 **Verification command:**
 ```bash
-npm test
+npm test -- src/__tests__/llm.test.ts src/evolve/__tests__/proposer.test.ts
 npm run build
 ```
 
-**Commit message:** `test(evolve): comprehensive tests for JSON extraction, delete mutations, MCP scope`
+**Commit message:** `test(evolve): add tests for jsonMode, robust JSON extraction, and assistant prefill`
 
 ---
 
 ## Parallel Groups
 
-**Group A [parallel, no dependencies]:** Steps 1, 2, 4, 7, 8
-- LLM jsonMode, robust parser, types expansion, MCP scope, prompt rebalance — all independent
+**Group A [parallel, no dependencies]:** Steps 1, 2
+- LLM jsonMode with assistant prefill, robust JSON extraction — independent
 
-**Group B [after Group A]:** Steps 3, 5, 6, 9
-- Wire jsonMode into proposer, mutator delete handlers, parser update, tests
+**Group B [after Group A]:** Steps 3, 4
+- Wire jsonMode into proposer, tests
 
 ---
 
-## Success Criteria (v2.2.1 Complete)
+## Success Criteria (v2.2.2 Complete)
 
-- [ ] All 9 steps committed to feature branch
+- [ ] All 4 steps committed to feature branch
 - [ ] `npm run build` succeeds
 - [ ] `npm test` passes (all new + existing tests green)
-- [ ] **Proposer returns valid JSON** (the #1 blocker — test with real `kairn evolve run`)
+- [ ] **Proposer returns valid JSON on real `kairn evolve run`** (the #1 blocker)
 - [ ] Prose-wrapped JSON is extracted correctly by parser fallback
-- [ ] `delete_section` mutation removes text from harness files
-- [ ] `delete_file` mutation removes files from harness
-- [ ] `.mcp.json` is captured in baseline and deployed to workspaces
-- [ ] Proposer prompt lists all 5 mutation actions
-- [ ] Proposer prompt no longer says "Prefer ADDITIVE"
-- [ ] `parseProposerResponse` accepts delete_section and delete_file
+- [ ] Assistant prefill forces JSON start for Anthropic
+- [ ] OpenAI-compatible providers use `response_format`
+- [ ] Backward compat: `callLLM()` without `jsonMode` unchanged
 - [ ] Code follows v2.0-v2.2 patterns (no new dependencies)

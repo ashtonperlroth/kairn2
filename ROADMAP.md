@@ -175,17 +175,22 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] Evolution leaderboard (table of iterations × tasks × scores)
 - [x] `kairn evolve diff <iter1> <iter2>` — show harness changes between iterations
 
-### v2.2.1 — Proposer JSON Fix + Mutation Scope Expansion (Bugfix)
-> Discovered during Kairn-on-Kairn test runs. **#1 blocker:** Proposer returns English prose instead of JSON — no mutations are ever applied. Also: mutations are additive-only, MCP is outside scope, proposer prompt biases toward growth.
+### v2.2.1 — Mutation Scope Expansion (Bugfix) ✅ SHIPPED
+> Bugs 3, 4, 5 from initial Kairn-on-Kairn test run. Mutations additive-only, MCP outside scope, proposer biased toward growth.
+
+- [x] Add `delete_section` and `delete_file` mutation actions to types and mutator
+- [x] Include `.mcp.json` in harness scope (baseline snapshot, runner deployment, proposer reading)
+- [x] Rebalance proposer prompt: consider both additions AND removals, list all mutation actions
+- [x] Update proposer JSON parser to accept `delete_section` and `delete_file` actions
+- [x] Tests: delete mutations, MCP snapshot, balanced proposer
+
+### v2.2.2 — Proposer JSON Fix (Critical Bugfix)
+> Discovered during Kairn-on-Kairn test run post-v2.2.1. **#1 blocker:** Proposer returns English prose instead of JSON — no mutations are ever applied despite loop running fine.
 
 - [ ] **CRITICAL:** Add `jsonMode` to `callLLM()` with assistant prefill (Anthropic) and `response_format` (OpenAI)
 - [ ] **CRITICAL:** Robust JSON extraction in parser — handle prose-wrapped JSON (first `{` to last `}`)
 - [ ] Wire `jsonMode: true` in proposer LLM call
-- [ ] Add `delete_section` and `delete_file` mutation actions to types and mutator
-- [ ] Include `.mcp.json` in harness scope (baseline snapshot, runner deployment, proposer reading)
-- [ ] Rebalance proposer prompt: consider both additions AND removals, list all mutation actions, strengthen JSON instruction
-- [ ] Update proposer JSON parser to accept `delete_section` and `delete_file` actions
-- [ ] Tests: JSON extraction from prose, assistant prefill, delete mutations, MCP snapshot, balanced proposer
+- [ ] Tests: JSON extraction from prose, assistant prefill behavior
 
 ### v2.3.0 — Advanced Scoring & Search
 - [ ] Custom scoring functions (user-defined Python/TS scoring scripts)
