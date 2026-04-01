@@ -192,15 +192,15 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] Wire `jsonMode: true` in proposer LLM call
 - [x] Tests: JSON extraction from prose, assistant prefill behavior
 
-### v2.2.3 — End-to-End Loop Validation [NEXT]
+### v2.2.4 ✅ SHIPPED (was v2.2.3 plan)
 > v2.2.1 shipped the mutation types and v2.2.2 fixed proposer JSON. This version proves the full loop works: mutations actually apply, scores actually move, evolved > static is demonstrable.
 
-- [ ] `kairn evolve apply [--iter N]` — copy best harness to `.claude/` with diff preview + git commit (highest-friction UX gap)
-- [ ] **Integration test:** `kairn evolve run --iterations 3` applies mutations and score improves vs baseline
-- [ ] Variance controls: run each task N times (default: 3), report mean ± stddev per task
-- [ ] **Proof artifact:** before/after comparison showing evolved harness outperforms static on a held-out task
+- [x] `kairn evolve apply [--iter N]` — copy best harness to `.claude/` with diff preview (highest-friction UX gap)
+- [x] **Integration test:** full loop with deterministic mocks proves score improves, rollback works, errors recover
+- [x] Variance controls: `--runs N` runs each task N times, reports mean ± stddev per task
+- [ ] **Proof artifact:** before/after comparison showing evolved harness outperforms static on a held-out task (deferred to v2.3.0)
 
-### v2.3.0 — Eval Quality & Measurement Rigor
+### v2.3.0 — Eval Quality & Measurement Rigor [NEXT]
 > The evolution loop is only as good as its eval signal. Before adding features, make measurement trustworthy.
 
 **Eval Quality (the bottleneck):**

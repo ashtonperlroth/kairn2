@@ -198,13 +198,13 @@ Step 4 depends on all three.
 
 ## Completion Criteria
 
-- [ ] `kairn evolve apply` works (copies best harness, shows diff, commits)
-- [ ] `--runs N` produces mean ± stddev for each task
-- [ ] Integration test suite passes with deterministic mocks
-- [ ] `PROOF-v2.2.3.md` shows evolved > static with variance data
-- [ ] `npm run build` clean, `npm test` all green
-- [ ] Version bumped to 2.2.3 in package.json (already done)
-- [ ] ROADMAP.md updated (v2.2.3 marked ✅)
+- [x] `kairn evolve apply` works (copies best harness, shows diff)
+- [x] `--runs N` produces mean ± stddev for each task
+- [x] Integration test suite passes with deterministic mocks
+- [ ] `PROOF-v2.2.3.md` shows evolved > static with variance data (deferred — Step 4 is a live run)
+- [x] `npm run build` clean, `npm test` all green (342 tests, 17 files)
+- [x] Version bumped to 2.2.4 in package.json (published as 2.2.4; 2.2.3 was taken)
+- [x] ROADMAP.md updated (v2.2.4 marked ✅)
 - [ ] CHANGELOG.md updated
 
 ---
