@@ -63,6 +63,7 @@ export interface EvolveConfig {
   maxMutationsPerIteration: number;
   pruneThreshold: number;
   maxTaskDrop: number;
+  evalSampleSize: number;
 }
 
 // Shape of parsed tasks.yaml

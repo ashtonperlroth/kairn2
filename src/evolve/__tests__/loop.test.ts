@@ -53,6 +53,7 @@ function makeEvolveConfig(overrides: Partial<EvolveConfig> = {}): EvolveConfig {
     maxMutationsPerIteration: 3,
     pruneThreshold: 95,
     maxTaskDrop: 20,
+    evalSampleSize: 0,
     ...overrides,
   };
 }
