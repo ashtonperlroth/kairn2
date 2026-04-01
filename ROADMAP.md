@@ -216,10 +216,13 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [ ] Confidence intervals: report mean ± stddev across N runs per task in `kairn evolve report`
 - [ ] Custom scoring functions (user-defined scoring scripts in `.kairn-evolve/`)
 
-**Iteration Speed:**
-- [x] ~~Parallel task evaluation~~ — shipped in v2.2.5
+**Auth & Cost:**
+- [ ] **Claude Code subscription auth (experimental)** — at `kairn init`, offer "Use Claude Code subscription" option that reads OAuth tokens from macOS Keychain (`Claude Code-credentials`), refreshes on expiry, and passes as API key. All LLM calls (compilation, proposer, scorer) bill to user's Claude subscription instead of separate API key. Upfront warning: undocumented, may break. Full system prompt and model selection support (OAuth token = API key for Anthropic SDK). Linux/Windows credential store support TBD.
 - [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads — ~85% token savings)
 - [ ] Cost tracking per iteration (total tokens, USD cost, wall time) in report
+
+**Iteration Speed:**
+- [x] ~~Parallel task evaluation~~ — shipped in v2.2.5
 
 **DX Quick Wins:**
 - [ ] Fix hardcoded CLI version → read from package.json dynamically
