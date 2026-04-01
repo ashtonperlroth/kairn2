@@ -234,7 +234,7 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] After rollback, proposer proposes NEW mutations on best harness instead of re-evaluating unchanged harness
 - [x] `.mcp.json` included in `evolve apply` output (harness scope fix)
 
-### v2.3.0 — Eval Quality & Measurement Rigor [NEXT]
+### v2.3.0 ✅ SHIPPED
 > The evolution loop is only as good as its eval signal. Before adding features, make measurement trustworthy.
 
 **Eval Quality (the bottleneck):**
@@ -256,7 +256,7 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [ ] Capture tool calls & MCP usage from runner output → tool_calls.json
 - [ ] Harness utilization metrics (which tools/agents/rules were used vs available)
 
-### v2.4.0 — Intelligent Evolution (RL-inspired)
+### v2.4.0 — Intelligent Evolution (RL-inspired) [NEXT]
 > The evolution loop is a text-space optimization algorithm. These features make it behave more like a proper optimizer: mini-batch sampling, meta-learning, exploration scheduling.
 
 **Principal Proposer (meta-learner):**
