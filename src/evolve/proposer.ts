@@ -135,6 +135,7 @@ export function buildProposerUserMessage(
   traces: Trace[],
   tasks: Task[],
   history: IterationLog[],
+  memorySection?: string,
 ): string {
   // Priority-based context assembly: harness + tasks are never truncated,
   // traces and history are progressively reduced to fit within budget.
@@ -180,7 +181,8 @@ export function buildProposerUserMessage(
   const traceSection = buildTraceSection(traces, traceBudget);
   const historySection = buildHistorySection(history, historyBudget);
 
-  return fixedContent + '\n' + traceSection + '\n' + historySection;
+  const memoryPart = memorySection ? '\n' + memorySection : '';
+  return fixedContent + '\n' + traceSection + '\n' + historySection + memoryPart;
 }
 
 /**
@@ -410,7 +412,10 @@ export async function propose(
 ): Promise<Proposal> {
   const harnessFiles = await readHarnessFiles(harnessPath);
   const traces = await loadIterationTraces(workspacePath, iteration);
-  const userMessage = buildProposerUserMessage(harnessFiles, traces, tasks, history);
+  const { loadProposerMemory, formatMemoryForProposer } = await import('./memory.js');
+  const memory = await loadProposerMemory(workspacePath);
+  const memorySection = formatMemoryForProposer(memory);
+  const userMessage = buildProposerUserMessage(harnessFiles, traces, tasks, history, memorySection);
 
   // Override model with proposer-specific model
   const proposerConfig: KairnConfig = { ...config, model: proposerModel };

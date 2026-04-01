@@ -404,6 +404,15 @@ export async function evolve(
     }
   }
 
+  // Save run summary to proposer memory for cross-run learning
+  try {
+    const { buildRunSummary, saveRunSummary } = await import('./memory.js');
+    const summary = buildRunSummary(history, baselineScore, bestScore);
+    await saveRunSummary(workspacePath, summary);
+  } catch {
+    // Memory save is non-critical — don't fail the run
+  }
+
   onProgress?.({
     type: 'complete',
     iteration: history.length > 0 ? history.length - 1 : 0,
