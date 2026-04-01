@@ -65,10 +65,38 @@ export async function evolve(
       break; // No more iterations to run
     }
 
-    // 1. EVALUATE
+    // 1. EVALUATE (with adaptive pruning on middle iterations)
     onProgress?.({ type: 'iteration-start', iteration: iter });
-    const { results, aggregate } = await evaluateAll(
-      tasks,
+
+    const isFirstIter = iter === 0;
+    const isLastIter = iter === evolveConfig.maxIterations - 1;
+    const prevLog = history.length > 0 ? history[history.length - 1] : null;
+
+    // On middle iterations, skip tasks that scored 100% on the previous iteration
+    let tasksToRun = tasks;
+    const carriedScores: Record<string, Score> = {};
+
+    if (!isFirstIter && !isLastIter && prevLog) {
+      tasksToRun = [];
+      for (const task of tasks) {
+        const prevScore = prevLog.taskResults[task.id];
+        const prevValue = prevScore ? (prevScore.score ?? (prevScore.pass ? 100 : 0)) : 0;
+        if (prevValue >= 100) {
+          carriedScores[task.id] = { pass: true, score: 100 };
+          onProgress?.({
+            type: 'task-skipped',
+            iteration: iter,
+            taskId: task.id,
+            message: `Skipped ${task.id} (scored 100% last iteration)`,
+          });
+        } else {
+          tasksToRun.push(task);
+        }
+      }
+    }
+
+    const { results: evalResults, aggregate: evalAggregate } = await evaluateAll(
+      tasksToRun,
       harnessPath,
       workspacePath,
       iter,
@@ -77,6 +105,16 @@ export async function evolve(
       evolveConfig.runsPerTask,
       evolveConfig.parallelTasks,
     );
+
+    // Merge carried-forward scores with evaluated results
+    const results = { ...carriedScores, ...evalResults };
+    const allScores = Object.values(results);
+    const total = allScores.reduce(
+      (sum, s) => sum + (s.score ?? (s.pass ? 100 : 0)),
+      0,
+    );
+    const aggregate = allScores.length > 0 ? total / allScores.length : 0;
+
     onProgress?.({ type: 'iteration-scored', iteration: iter, score: aggregate });
 
     if (iter === 0) baselineScore = aggregate;

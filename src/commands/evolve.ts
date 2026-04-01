@@ -341,6 +341,9 @@ evolveCommand
             case 'task-run':
               console.log(chalk.dim(`      ${event.message ?? ''}`));
               break;
+            case 'task-skipped':
+              console.log(chalk.dim(`    SKIP  ${event.taskId ?? 'unknown'} (100% last iteration)`));
+              break;
             case 'task-scored': {
               const taskScore = event.score ?? 0;
               const taskStatus = taskScore >= 100 ? chalk.green('PASS') : taskScore >= 60 ? chalk.yellow('PARTIAL') : chalk.red('FAIL');

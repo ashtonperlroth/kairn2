@@ -195,7 +195,7 @@ export interface EvolutionReport {
 
 // Progress events emitted during the evolution loop
 export interface LoopProgressEvent {
-  type: 'iteration-start' | 'iteration-scored' | 'rollback' | 'proposing' | 'proposer-error' | 'mutations-applied' | 'perfect-score' | 'task-start' | 'task-scored' | 'task-run' | 'complete';
+  type: 'iteration-start' | 'iteration-scored' | 'rollback' | 'proposing' | 'proposer-error' | 'mutations-applied' | 'perfect-score' | 'task-start' | 'task-scored' | 'task-run' | 'task-skipped' | 'complete';
   iteration: number;
   score?: number;
   mutationCount?: number;

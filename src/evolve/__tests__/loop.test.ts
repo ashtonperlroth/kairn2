@@ -707,4 +707,143 @@ describe('evolve', () => {
     // Only 1 iteration should be logged (iteration 0)
     expect(result.iterations).toHaveLength(1);
   });
+
+  it('skips 100% tasks on middle iterations (adaptive pruning)', async () => {
+    const workspace = await createWorkspace([0, 1, 2]);
+    const tasks = [makeTask('always-pass'), makeTask('needs-work')];
+    const proposal = makeProposal();
+
+    // Iteration 0: always-pass=100, needs-work=60
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: {
+        'always-pass': { pass: true, score: 100 },
+        'needs-work': { pass: false, score: 60 },
+      },
+      aggregate: 80,
+    });
+    mockPropose.mockResolvedValueOnce(proposal);
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    // Iteration 1 (MIDDLE): should only receive needs-work task
+    mockEvaluateAll.mockImplementationOnce(async (tasksArg) => {
+      // Verify only non-100% tasks are passed
+      expect(tasksArg).toHaveLength(1);
+      expect(tasksArg[0].id).toBe('needs-work');
+      return {
+        results: { 'needs-work': { pass: true, score: 80 } },
+        aggregate: 80,
+      };
+    });
+    mockPropose.mockResolvedValueOnce(proposal);
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '2', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    // Iteration 2 (LAST): should receive ALL tasks
+    mockEvaluateAll.mockImplementationOnce(async (tasksArg) => {
+      expect(tasksArg).toHaveLength(2);
+      return {
+        results: {
+          'always-pass': { pass: true, score: 100 },
+          'needs-work': { pass: true, score: 85 },
+        },
+        aggregate: 92.5,
+      };
+    });
+
+    const result = await evolve(
+      workspace,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({ maxIterations: 3 }),
+    );
+
+    expect(result.iterations).toHaveLength(3);
+    // Middle iteration aggregate includes carried-forward 100 for always-pass
+    expect(result.iterations[1].score).toBe(90); // (100 + 80) / 2
+  });
+
+  it('runs all tasks on first iteration even if history has 100% scores', async () => {
+    const workspace = await createWorkspace([0]);
+    const tasks = [makeTask('task-1'), makeTask('task-2')];
+
+    // Iteration 0 (FIRST): all tasks should run regardless
+    mockEvaluateAll.mockImplementationOnce(async (tasksArg) => {
+      expect(tasksArg).toHaveLength(2);
+      return {
+        results: {
+          'task-1': { pass: true, score: 100 },
+          'task-2': { pass: true, score: 100 },
+        },
+        aggregate: 100,
+      };
+    });
+
+    const result = await evolve(
+      workspace,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({ maxIterations: 1 }),
+    );
+
+    expect(result.bestScore).toBe(100);
+  });
+
+  it('emits task-skipped events for pruned tasks', async () => {
+    const workspace = await createWorkspace([0, 1, 2]);
+    const tasks = [makeTask('perfect'), makeTask('imperfect')];
+    const events: LoopProgressEvent[] = [];
+    const proposal = makeProposal();
+
+    // Iteration 0: perfect=100, imperfect=70
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: {
+        'perfect': { pass: true, score: 100 },
+        'imperfect': { pass: true, score: 70 },
+      },
+      aggregate: 85,
+    });
+    mockPropose.mockResolvedValueOnce(proposal);
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '1', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    // Iteration 1 (middle): only imperfect runs
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: { 'imperfect': { pass: true, score: 80 } },
+      aggregate: 80,
+    });
+    mockPropose.mockResolvedValueOnce(proposal);
+    mockApplyMutations.mockResolvedValueOnce({
+      newHarnessPath: path.join(workspace, 'iterations', '2', 'harness'),
+      diffPatch: 'diff',
+    });
+
+    // Iteration 2 (last): all tasks
+    mockEvaluateAll.mockResolvedValueOnce({
+      results: {
+        'perfect': { pass: true, score: 100 },
+        'imperfect': { pass: true, score: 85 },
+      },
+      aggregate: 92.5,
+    });
+
+    await evolve(
+      workspace,
+      tasks,
+      makeKairnConfig(),
+      makeEvolveConfig({ maxIterations: 3 }),
+      (event) => events.push(event),
+    );
+
+    const skippedEvents = events.filter(e => e.type === 'task-skipped');
+    expect(skippedEvents).toHaveLength(1);
+    expect(skippedEvents[0].taskId).toBe('perfect');
+    expect(skippedEvents[0].iteration).toBe(1);
+  });
 });
