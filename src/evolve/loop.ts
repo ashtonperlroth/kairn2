@@ -75,6 +75,7 @@ export async function evolve(
       kairnConfig,
       onProgress,
       evolveConfig.runsPerTask,
+      evolveConfig.parallelTasks,
     );
     onProgress?.({ type: 'iteration-scored', iteration: iter, score: aggregate });
 

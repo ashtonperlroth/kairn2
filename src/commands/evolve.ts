@@ -195,7 +195,8 @@ evolveCommand
   .option('--task <id>', 'Run a specific task by ID')
   .option('--iterations <n>', 'Number of evolution iterations', '5')
   .option('--runs <n>', 'Run each task N times for variance measurement', '1')
-  .action(async (options: { task?: string; iterations?: string; runs?: string }) => {
+  .option('--parallel <n>', 'Run up to N tasks concurrently', '1')
+  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string }) => {
     try {
       const projectRoot = process.cwd();
       const workspace = path.join(projectRoot, '.kairn-evolve');
@@ -289,6 +290,13 @@ evolveCommand
           process.exit(1);
         }
         evolveConfig.runsPerTask = runs;
+
+        const parallel = parseInt(options.parallel ?? '1', 10);
+        if (isNaN(parallel) || parallel < 1) {
+          console.log(ui.error('--parallel must be a positive integer'));
+          process.exit(1);
+        }
+        evolveConfig.parallelTasks = parallel;
 
         // Verify baseline exists
         try {

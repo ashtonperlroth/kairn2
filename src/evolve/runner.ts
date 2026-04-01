@@ -346,6 +346,39 @@ export function parseToolCalls(stdout: string): unknown[] {
 }
 
 /**
+ * Run async tasks with a concurrency limit.
+ * Returns results in the same order as the input tasks array.
+ */
+export async function runWithConcurrency<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number,
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  const executing = new Set<Promise<void>>();
+  const errors: unknown[] = [];
+
+  for (let i = 0; i < tasks.length; i++) {
+    const p = tasks[i]().then(
+      (result) => { results[i] = result; },
+      (err) => { errors.push(err); },
+    );
+    const tracked = p.then(() => { executing.delete(tracked); });
+    executing.add(tracked);
+    if (executing.size >= limit) {
+      await Promise.race(executing);
+    }
+  }
+
+  await Promise.all(executing);
+
+  if (errors.length > 0) {
+    throw errors[0];
+  }
+
+  return results;
+}
+
+/**
  * Compute population standard deviation for a list of numbers.
  *
  * Uses population stddev (divide by N) rather than sample stddev (divide by N-1).
@@ -379,13 +412,17 @@ export async function evaluateAll(
   config: KairnConfig | null,
   onProgress?: (event: LoopProgressEvent) => void,
   runsPerTask: number = 1,
+  parallelTasks: number = 1,
 ): Promise<{ results: Record<string, Score>; aggregate: number }> {
   const results: Record<string, Score> = {};
   const projectRoot = path.resolve(workspacePath, '..');
   const effectiveRuns = Math.max(1, runsPerTask);
+  const concurrency = Math.max(1, parallelTasks);
 
-  for (const task of tasks) {
+  const evaluateTask = async (task: Task): Promise<{ id: string; score: Score }> => {
     onProgress?.({ type: 'task-start', iteration, taskId: task.id });
+
+    let finalScore: Score;
 
     if (effectiveRuns > 1 && config) {
       const runScores: number[] = [];
@@ -424,7 +461,7 @@ export async function evaluateAll(
       const mean = runScores.reduce((a, b) => a + b, 0) / runScores.length;
       const stddev = computeStddev(runScores, mean);
 
-      results[task.id] = {
+      finalScore = {
         pass: passCount > effectiveRuns / 2,
         score: mean,
         details: `Mean of ${effectiveRuns} runs`,
@@ -445,7 +482,7 @@ export async function evaluateAll(
 
       const taskResult = await runTask(task, harnessPath, traceDir, iteration, projectRoot);
 
-      let score = taskResult.score;
+      finalScore = taskResult.score;
       if (config) {
         const stdout = await fs
           .readFile(path.join(traceDir, 'stdout.log'), 'utf-8')
@@ -453,20 +490,28 @@ export async function evaluateAll(
         const stderr = await fs
           .readFile(path.join(traceDir, 'stderr.log'), 'utf-8')
           .catch(() => '');
-        score = await scoreTask(task, traceDir, stdout, stderr, config);
-        await writeScore(traceDir, score);
+        finalScore = await scoreTask(task, traceDir, stdout, stderr, config);
+        await writeScore(traceDir, finalScore);
       }
-
-      results[task.id] = score;
     }
 
-    const finalScore = results[task.id];
     onProgress?.({
       type: 'task-scored',
       iteration,
       taskId: task.id,
       score: finalScore.score ?? (finalScore.pass ? 100 : 0),
     });
+
+    return { id: task.id, score: finalScore };
+  };
+
+  const taskResults = await runWithConcurrency(
+    tasks.map((task) => () => evaluateTask(task)),
+    concurrency,
+  );
+
+  for (const { id, score } of taskResults) {
+    results[id] = score;
   }
 
   const scores = Object.values(results);
