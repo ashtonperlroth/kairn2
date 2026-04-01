@@ -294,7 +294,13 @@ evolveCommand
 
         const evolveConfig = await loadEvolveConfigFromWorkspace(workspace);
 
-        if (options.interactive) {
+        // Show interactive menu by default unless flags were explicitly passed
+        const hasExplicitFlags = options.iterations !== '5' || options.runs !== '1' ||
+          options.parallel !== '1' || options.maxMutations !== '3' ||
+          options.pruneThreshold !== '95' || options.maxTaskDrop !== '20' ||
+          options.principal || options.evalSample !== '0';
+
+        if (!hasExplicitFlags) {
           // Interactive configuration menu
           console.log(chalk.dim('  Configure evolution settings:\n'));
 
