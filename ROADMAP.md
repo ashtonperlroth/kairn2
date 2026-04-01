@@ -184,13 +184,23 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] Update proposer JSON parser to accept `delete_section` and `delete_file` actions
 - [x] Tests: delete mutations, MCP snapshot, balanced proposer
 
-### v2.2.2 — Proposer JSON Fix (Critical Bugfix)
+### v2.2.2 — Proposer JSON Fix (Critical Bugfix) [IN PROGRESS]
 > Discovered during Kairn-on-Kairn test run post-v2.2.1. **#1 blocker:** Proposer returns English prose instead of JSON — no mutations are ever applied despite loop running fine.
 
 - [ ] **CRITICAL:** Add `jsonMode` to `callLLM()` with assistant prefill (Anthropic) and `response_format` (OpenAI)
 - [ ] **CRITICAL:** Robust JSON extraction in parser — handle prose-wrapped JSON (first `{` to last `}`)
 - [ ] Wire `jsonMode: true` in proposer LLM call
 - [ ] Tests: JSON extraction from prose, assistant prefill behavior
+
+### v2.2.3 — Mutation Scope Expansion (Bugfix)
+> After v2.2.2 fixes proposer JSON. Now enable the loop to remove bloat and optimize MCP configuration — not just add instructions.
+
+- [ ] Add `delete_section` and `delete_file` mutation actions to types and mutator
+- [ ] Include `.mcp.json` in harness scope (baseline snapshot, runner deployment, proposer reading)
+- [ ] Rebalance proposer prompt: consider both additions AND removals, list all 5 mutation actions, add MCP guidance
+- [ ] Update proposer JSON parser to accept `delete_section` and `delete_file` actions
+- [ ] Tests: delete mutations, MCP snapshot, balanced proposer
+- [ ] **Integration test:** `kairn evolve run --iterations 3` applies mutations and improves score (confirms loop actually evolves)
 
 ### v2.3.0 — Advanced Scoring & Search
 - [ ] Custom scoring functions (user-defined Python/TS scoring scripts)

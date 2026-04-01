@@ -133,4 +133,23 @@ This is a patch release — no new CLI commands. Just the JSON fix. Mutation sco
 
 Builds on v2.2.1: modifies `callLLM()` in `src/llm.ts` and `parseProposerResponse()` in `src/evolve/proposer.ts`.
 
-PLAN-v2.2.1.md (renamed from v2.2.1 plan) has 4 steps grouped into 2 parallel groups (A: 2 parallel, B: 2 after A).
+PLAN-v2.2.1.md (v2.2.2 plan) has 4 steps grouped into 2 parallel groups (A: 2 parallel, B: 2 after A).
+
+---
+
+## For v2.2.3 Specifically
+
+The design doc is in `docs/design/v2.0-kairn-evolve.md` (section v2.2.1 — Mutation Scope Expansion, Bug 3/4/5 details).
+
+**Depends on:** v2.2.2 landing first (the proposer JSON fix must work before expanding mutation actions).
+
+**Key fixes:**
+1. Add `delete_section` and `delete_file` mutation actions (types.ts, mutator.ts, proposer parser)
+2. Include `.mcp.json` in harness scope (baseline.ts, runner.ts, proposer reads it automatically)
+3. Rebalance proposer prompt — remove "Prefer ADDITIVE" bias, list all 5 actions, add MCP guidance
+
+This is a patch release — no new CLI commands. Mutation scope expansion.
+
+Builds on v2.2.2: modifies `Mutation` type, `applyMutations()`, `createBaseline()`, `createIsolatedWorkspace()`, `parseProposerResponse()`, `PROPOSER_SYSTEM_PROMPT`.
+
+PLAN-v2.2.3.md has 7 steps grouped into 2 parallel groups (A: 3 parallel, B: 4 after A).
