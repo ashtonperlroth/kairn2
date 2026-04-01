@@ -29,6 +29,8 @@ const DEFAULT_CONFIG: EvolveConfig = {
   maxMutationsPerIteration: 3,
   pruneThreshold: 95,
   maxTaskDrop: 20,
+  usePrincipal: false,
+  evalSampleSize: 0,
 };
 
 /**
@@ -49,6 +51,8 @@ export async function loadEvolveConfigFromWorkspace(workspacePath: string): Prom
       maxMutationsPerIteration: (parsed.max_mutations_per_iteration as number) ?? DEFAULT_CONFIG.maxMutationsPerIteration,
       pruneThreshold: (parsed.prune_threshold as number) ?? DEFAULT_CONFIG.pruneThreshold,
       maxTaskDrop: (parsed.max_task_drop as number) ?? DEFAULT_CONFIG.maxTaskDrop,
+      usePrincipal: (parsed.use_principal as boolean) ?? DEFAULT_CONFIG.usePrincipal,
+      evalSampleSize: (parsed.eval_sample_size as number) ?? DEFAULT_CONFIG.evalSampleSize,
     };
   } catch {
     return { ...DEFAULT_CONFIG };
@@ -205,7 +209,9 @@ evolveCommand
   .option('--max-mutations <n>', 'Max mutations per iteration', '3')
   .option('--prune-threshold <n>', 'Skip tasks scoring above this on middle iterations', '95')
   .option('--max-task-drop <n>', 'Roll back if any task drops more than N points', '20')
-  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string }) => {
+  .option('--principal', 'Run Principal Proposer as final iteration')
+  .option('--eval-sample <n>', 'Sample N tasks per middle iteration (0 = all)', '0')
+  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string; principal?: boolean; evalSample?: string }) => {
     try {
       const projectRoot = process.cwd();
       const workspace = path.join(projectRoot, '.kairn-evolve');
@@ -327,6 +333,17 @@ evolveCommand
           process.exit(1);
         }
         evolveConfig.maxTaskDrop = maxTaskDrop;
+
+        if (options.principal) {
+          evolveConfig.usePrincipal = true;
+        }
+
+        const evalSample = parseInt(options.evalSample ?? '0', 10);
+        if (isNaN(evalSample) || evalSample < 0) {
+          console.log(ui.error('--eval-sample must be a non-negative integer'));
+          process.exit(1);
+        }
+        evolveConfig.evalSampleSize = evalSample;
 
         // Verify baseline exists
         try {
