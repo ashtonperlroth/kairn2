@@ -202,13 +202,25 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [ ] Tests: delete mutations, MCP snapshot, balanced proposer
 - [ ] **Integration test:** `kairn evolve run --iterations 3` applies mutations and improves score (confirms loop actually evolves)
 
-### v2.3.0 — Advanced Scoring & Search
-- [ ] Custom scoring functions (user-defined Python/TS scoring scripts)
-- [ ] Multi-objective scoring (correctness × efficiency × token cost)
-- [ ] Search strategy selection: greedy (default), best-of-N, population-based (OpenEvolve-style)
+### v2.3.0 — Advanced Scoring & Search + Quick Wins
+> After v2.2.3, improve evolution visibility, iteration speed, and scoring capabilities.
+
+**Quick Wins:**
+- [ ] Fix hardcoded CLI version → read from package.json dynamically
+- [ ] Parallel task evaluation (promise-based, concurrency-limited) — 20 min → 5 min per iteration
+- [ ] `kairn evolve apply [--iter N]` — copy best harness to .claude/ with diff preview + git commit
+- [ ] Capture tool calls & MCP usage from runner output → tool_calls.json
+
+**Medium Features (harness insights):**
+- [ ] Harness utilization metrics (which tools/agents/rules were used vs available)
+- [ ] Cost tracking per iteration (total tokens, USD cost, wall time) in report
+- [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads — ~85% token savings)
+
+**Core v2.3 Features:**
+- [ ] Multi-objective scoring (correctness × efficiency × cost) with weighted aggregation
+- [ ] Search strategy selection: greedy (default), best-of-N, population-based
 - [ ] Held-out validation set (train/test split for tasks to prevent overfitting)
-- [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads)
-- [ ] Cost tracking per iteration (total tokens, API cost, wall time)
+- [ ] Custom scoring functions (user-defined scoring scripts in .kairn-evolve/)
 
 ### v2.4.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)
