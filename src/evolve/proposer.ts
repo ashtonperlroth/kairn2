@@ -62,6 +62,13 @@ the agent lacks a tool it needs, or has tools that add noise without benefit.
 - Consider both additions AND removals. Remove sections that add noise without improving task performance.
 - Bloated harnesses hurt performance — trim what isn't earning its keep.
 
+## Anti-Gaming (CRITICAL)
+- Mutations must improve GENERAL-PURPOSE development quality, not target specific eval criteria.
+- You do NOT have access to scoring rubrics or expected outcomes. Diagnose problems from traces only.
+- Do NOT add over-specified rules that restate existing conventions with stronger emphasis (e.g., changing "use chalk.green for success" to "MUST use chalk.green, no exceptions"). If a convention already exists, trust it.
+- Do NOT add rules that only apply to a narrow eval scenario (e.g., write permissions for a specific directory just because one task needed it).
+- Ask: "Would this mutation help a developer working on ANY task in this project?" If not, don't propose it.
+
 Return ONLY valid JSON.`;
 
 /** Maximum characters of stdout to include per trace in the prompt. */
@@ -143,7 +150,8 @@ export function buildProposerUserMessage(
     }
   }
 
-  // Section 2: Task definitions (high priority — never truncated)
+  // Section 2: Task definitions (description only — rubrics and expected_outcome
+  // are intentionally excluded to prevent the proposer from gaming eval criteria)
   const taskSection: string[] = ['## Task Definitions\n'];
   if (tasks.length === 0) {
     taskSection.push('(No tasks defined)\n');
@@ -152,9 +160,7 @@ export function buildProposerUserMessage(
       taskSection.push(
         `### Task: ${task.id}\n` +
         `- Template: ${task.template}\n` +
-        `- Description: ${task.description}\n` +
-        `- Expected outcome: ${Array.isArray(task.expected_outcome) ? task.expected_outcome.join('; ') : task.expected_outcome}\n` +
-        `- Scoring: ${task.scoring}\n`,
+        `- Description: ${task.description}\n`,
       );
     }
   }
