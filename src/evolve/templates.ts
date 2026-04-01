@@ -46,6 +46,24 @@ export const EVAL_TEMPLATES: Record<EvalTemplate, TemplateMetadata> = {
     description: 'Can the agent write and update docs?',
     bestFor: ['content', 'api-building', 'full-stack'],
   },
+  'convention-adherence': {
+    id: 'convention-adherence',
+    name: 'Convention Adherence',
+    description: 'Does the agent follow all project conventions defined in CLAUDE.md?',
+    bestFor: ['feature-development', 'full-stack', 'backend', 'maintenance'],
+  },
+  'workflow-compliance': {
+    id: 'workflow-compliance',
+    name: 'Workflow Compliance',
+    description: 'Does the agent use the project workflow commands and skills?',
+    bestFor: ['feature-development', 'full-stack', 'tdd', 'qa'],
+  },
+  'rule-compliance': {
+    id: 'rule-compliance',
+    name: 'Rule Compliance',
+    description: 'Does the agent follow all project rules without violations?',
+    bestFor: ['feature-development', 'backend', 'maintenance', 'architecture'],
+  },
 };
 
 /**
@@ -57,21 +75,21 @@ export const EVAL_TEMPLATES: Record<EvalTemplate, TemplateMetadata> = {
  */
 export function selectTemplatesForWorkflow(workflowType: string): EvalTemplate[] {
   const mapping: Record<string, EvalTemplate[]> = {
-    'feature-development': ['add-feature', 'test-writing', 'documentation'],
-    'api-building': ['add-feature', 'fix-bug', 'test-writing'],
-    'full-stack': ['add-feature', 'fix-bug', 'test-writing'],
-    'maintenance': ['fix-bug', 'refactor', 'test-writing'],
-    'debugging': ['fix-bug', 'test-writing'],
-    'qa': ['fix-bug', 'test-writing', 'add-feature'],
-    'architecture': ['refactor', 'test-writing', 'config-change'],
-    'backend': ['fix-bug', 'refactor', 'config-change', 'test-writing'],
-    'devops': ['config-change', 'fix-bug'],
-    'infrastructure': ['config-change', 'refactor'],
-    'tdd': ['test-writing', 'add-feature', 'fix-bug'],
-    'content': ['documentation', 'add-feature'],
-    'research': ['documentation', 'add-feature'],
+    'feature-development': ['add-feature', 'test-writing', 'convention-adherence', 'workflow-compliance'],
+    'api-building': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence'],
+    'full-stack': ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence'],
+    'maintenance': ['fix-bug', 'refactor', 'test-writing', 'rule-compliance'],
+    'debugging': ['fix-bug', 'test-writing', 'rule-compliance'],
+    'qa': ['fix-bug', 'test-writing', 'add-feature', 'workflow-compliance'],
+    'architecture': ['refactor', 'test-writing', 'config-change', 'convention-adherence'],
+    'backend': ['fix-bug', 'refactor', 'config-change', 'rule-compliance'],
+    'devops': ['config-change', 'fix-bug', 'rule-compliance'],
+    'infrastructure': ['config-change', 'refactor', 'convention-adherence'],
+    'tdd': ['test-writing', 'add-feature', 'fix-bug', 'workflow-compliance'],
+    'content': ['documentation', 'add-feature', 'convention-adherence'],
+    'research': ['documentation', 'add-feature', 'convention-adherence'],
   };
-  return mapping[workflowType] || ['add-feature', 'fix-bug', 'test-writing'];
+  return mapping[workflowType] || ['add-feature', 'fix-bug', 'test-writing', 'convention-adherence'];
 }
 
 /**
@@ -81,6 +99,13 @@ export function selectTemplatesForWorkflow(workflowType: string): EvalTemplate[]
 export const TASK_GENERATION_PROMPT = `You are an eval task generator for Claude Code agent environments. Given a project's CLAUDE.md, project structure, and selected eval templates, generate concrete, project-specific tasks.
 
 Each task must be realistic and testable against the actual project. Avoid generic placeholders.
+
+IMPORTANT: For harness-aware templates (convention-adherence, workflow-compliance, rule-compliance), generate tasks where success DEPENDS on the agent reading and following the .claude/ harness content:
+- convention-adherence: Task must require following specific conventions from CLAUDE.md (naming, file structure, patterns). Judge by whether output matches the conventions.
+- workflow-compliance: Task must require using project slash commands or workflow steps defined in .claude/commands/. Judge by whether the agent followed the defined workflow.
+- rule-compliance: Task must create a scenario where .claude/rules/ content is relevant. Judge by whether the agent respected all rules.
+
+These harness-aware tasks are critical — they test whether the .claude/ environment actually improves agent behavior.
 
 Return a JSON object with a "tasks" array. Each task has:
 - id: kebab-case identifier (e.g., "add-health-endpoint")
