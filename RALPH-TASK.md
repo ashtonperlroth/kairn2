@@ -118,18 +118,19 @@ Repeat max 3 times. If still failing, stop and report.
 
 ---
 
-## For v2.2.0 Specifically
+## For v2.2.1 Specifically
 
-The design doc is in `docs/design/v2.0-kairn-evolve.md` (same doc covers v2.0-v2.4, section v2.2.0 starts at line ~518).
+The design doc is in `docs/design/v2.0-kairn-evolve.md` (section v2.2.1 — Mutation Scope Expansion).
 
-Key features to implement:
-- Counterfactual diagnosis ("mutation X helped task A but hurt task B — why?")
-- Per-task trace diffing between iterations
-- `kairn evolve report` — Markdown summary of evolution run
-- `kairn evolve report --json` — machine-readable for CI
-- Evolution leaderboard (iterations × tasks × scores table)
-- `kairn evolve diff <iter1> <iter2>` — harness changes between iterations
+Bug report: `.omc/evolve-bugs.md` (Bugs 3, 4, 5 — the 3 remaining unfixed bugs from Kairn-on-Kairn test run).
 
-Builds on v2.1.0: uses `EvolveResult`, `IterationLog`, `Trace`, `Proposal`, `Mutation` types from `src/evolve/types.ts`, and `writeIterationLog()` from `src/evolve/trace.ts`.
+Key fixes:
+- Bug 3: Add `delete_section` and `delete_file` mutation actions (types.ts, mutator.ts, proposer parser)
+- Bug 4: Include `.mcp.json` in harness scope (baseline.ts, runner.ts, proposer reads it automatically)
+- Bug 5: Rebalance proposer prompt — remove "Prefer ADDITIVE" bias, list all 5 actions, add MCP guidance
 
-PLAN-v2.2.0.md has 10 steps grouped into 3 parallel groups (A: 6 parallel, B: 3 parallel, C: 1 final).
+This is a patch release — no new CLI commands. Only internal capabilities expansion.
+
+Builds on v2.2.0: modifies `Mutation` type, `applyMutations()`, `createBaseline()`, `createIsolatedWorkspace()`, `parseProposerResponse()`, `PROPOSER_SYSTEM_PROMPT`.
+
+PLAN-v2.2.1.md has 7 steps grouped into 2 parallel groups (A: 3 parallel, B: 4 after A).
