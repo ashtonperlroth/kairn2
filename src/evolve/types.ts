@@ -113,3 +113,30 @@ export interface ProjectProfileSummary {
   scripts: Record<string, string>;
   keyFiles: string[];
 }
+
+// Log entry for a single evolution iteration
+export interface IterationLog {
+  iteration: number;
+  score: number;
+  taskResults: Record<string, Score>;
+  proposal: Proposal | null;    // null for iteration 0 (baseline eval) or rollback
+  diffPatch: string | null;     // null for iteration 0 or rollback
+  timestamp: string;
+}
+
+// Final result of an evolution run
+export interface EvolveResult {
+  iterations: IterationLog[];
+  bestIteration: number;
+  bestScore: number;
+  baselineScore: number;
+}
+
+// Progress events emitted during the evolution loop
+export interface LoopProgressEvent {
+  type: 'iteration-start' | 'iteration-scored' | 'rollback' | 'proposing' | 'mutations-applied' | 'perfect-score' | 'complete';
+  iteration: number;
+  score?: number;
+  mutationCount?: number;
+  message?: string;
+}
