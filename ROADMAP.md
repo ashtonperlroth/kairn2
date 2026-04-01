@@ -207,24 +207,34 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 - [x] `runWithConcurrency` utility with configurable concurrency limit
 - [x] Backward compatible: `--parallel 1` (default) = sequential, identical to prior behavior
 
-### v2.2.8 — Optimization Controls [NEXT]
-> The evolution loop works but is noisy — too many mutations cause regressions, easy evals waste tokens, the proposer doesn't focus on what matters. These are the "learning rate, loss function, and batch strategy" of harness evolution.
+### v2.2.6 ✅ SHIPPED
+> Bug fix: Anthropic API rejects assistant prefill on newer models.
 
-**Mutation control (learning rate):**
-- [ ] `maxMutationsPerIteration` in EvolveConfig (default: 3) — cap how many mutations the proposer can apply per step. 6 mutations caused a catastrophic regression (99% → 80%); 2-3 targeted mutations are more stable.
-- [ ] Proposer prompt enforces the cap: "Propose at most N mutations, prioritize by expected impact"
+- [x] Remove assistant prefill for Anthropic jsonMode — rely on prompt instructions + JSON extraction fallback
 
-**Loss-weighted proposer focus (hard example mining):**
-- [ ] Sort traces by score ascending in `buildProposerUserMessage` — low-scoring tasks get more context budget
-- [ ] Proposer naturally focuses on what's broken instead of over-optimizing what's already passing
+### v2.2.7 ✅ SHIPPED
+> Harness-sensitive evals + adaptive eval pruning.
 
-**Configurable pruning threshold:**
-- [ ] `pruneThreshold` in EvolveConfig (default: 95) — skip tasks scoring above this on middle iterations (currently hardcoded at 100). A task at 96% isn't providing meaningful signal given LLM-as-judge noise.
+- [x] Adaptive eval pruning: skip tasks above threshold on middle iterations, run all on first/last
+- [x] Harness-sensitive tasks.yaml: 5 evals testing harness quality (verification workflow, convention adherence, git discipline, slash commands, architecture mandate)
+- [x] Blind proposer: stripped eval rubrics from proposer context to prevent gaming
+- [x] Anti-gaming constraints in proposer system prompt
 
-**Per-task regression guard (PPO clipping):**
-- [ ] In addition to aggregate rollback, roll back if ANY single task drops more than `maxTaskDrop` points (default: 20). Prevents the proposer from sacrificing one task to boost another.
+### v2.2.8 ✅ SHIPPED
+> ML-inspired optimization controls for the evolution loop.
 
-### v2.3.0 — Eval Quality & Measurement Rigor
+- [x] `maxMutationsPerIteration` (default: 3) — cap mutations per step, prevents catastrophic regressions
+- [x] Loss-weighted proposer focus — traces sorted worst-first, proposer focuses on what's broken
+- [x] `pruneThreshold` (default: 95) — configurable threshold for adaptive pruning
+- [x] `maxTaskDrop` (default: 20) — per-task regression guard, rolls back if any task drops too much
+
+### v2.2.10 ✅ SHIPPED
+> Rollback noise trap fix.
+
+- [x] After rollback, proposer proposes NEW mutations on best harness instead of re-evaluating unchanged harness
+- [x] `.mcp.json` included in `evolve apply` output (harness scope fix)
+
+### v2.3.0 — Eval Quality & Measurement Rigor [NEXT]
 > The evolution loop is only as good as its eval signal. Before adding features, make measurement trustworthy.
 
 **Eval Quality (the bottleneck):**
