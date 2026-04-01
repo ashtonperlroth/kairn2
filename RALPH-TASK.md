@@ -118,18 +118,19 @@ Repeat max 3 times. If still failing, stop and report.
 
 ---
 
-## For v2.2.0 Specifically
+## For v2.2.2 Specifically
 
-The design doc is in `docs/design/v2.0-kairn-evolve.md` (same doc covers v2.0-v2.4, section v2.2.0 starts at line ~518).
+The design doc is in `docs/design/v2.0-kairn-evolve.md` (section v2.2.1 — Proposer JSON Fix + Mutation Scope Expansion) — shows the exact failure + two-layer fix strategy.
 
-Key features to implement:
-- Counterfactual diagnosis ("mutation X helped task A but hurt task B — why?")
-- Per-task trace diffing between iterations
-- `kairn evolve report` — Markdown summary of evolution run
-- `kairn evolve report --json` — machine-readable for CI
-- Evolution leaderboard (iterations × tasks × scores table)
-- `kairn evolve diff <iter1> <iter2>` — harness changes between iterations
+Bug report: Latest test run post-v2.2.1 showing proposer JSON failure.
 
-Builds on v2.1.0: uses `EvolveResult`, `IterationLog`, `Trace`, `Proposal`, `Mutation` types from `src/evolve/types.ts`, and `writeIterationLog()` from `src/evolve/trace.ts`.
+**THE #1 BLOCKER:** The proposer returns English prose instead of JSON. No mutations have EVER been applied across any test run. The loop "runs" but never "evolves." This must be fixed first.
 
-PLAN-v2.2.0.md has 10 steps grouped into 3 parallel groups (A: 6 parallel, B: 3 parallel, C: 1 final).
+**Exactly what to fix:**
+1. **CRITICAL — Proposer JSON:** Add `jsonMode` to `callLLM()` with Anthropic assistant prefill (`{ role: "assistant", content: "{" }`) and OpenAI `response_format`. Also make `parseProposerResponse()` extract JSON from prose as fallback.
+
+This is a patch release — no new CLI commands. Just the JSON fix. Mutation scope expansion (delete mutations, MCP scope) will be v2.2.3.
+
+Builds on v2.2.1: modifies `callLLM()` in `src/llm.ts` and `parseProposerResponse()` in `src/evolve/proposer.ts`.
+
+PLAN-v2.2.1.md (renamed from v2.2.1 plan) has 4 steps grouped into 2 parallel groups (A: 2 parallel, B: 2 after A).
