@@ -15,6 +15,7 @@ import { writeScore, loadIterationLog } from '../evolve/trace.js';
 import { evolve } from '../evolve/loop.js';
 import { generateMarkdownReport, generateJsonReport } from '../evolve/report.js';
 import { generateDiff } from '../evolve/mutator.js';
+import { applyEvolution } from '../evolve/apply.js';
 import { loadConfig } from '../config.js';
 import type { EvolveConfig, Task, TasksFile, TaskResult, LoopProgressEvent } from '../evolve/types.js';
 
@@ -362,6 +363,67 @@ evolveCommand
           console.log(`  ${iter.iteration.toString().padStart(4)}  ${scoreStr}  ${mutStr.padStart(9)}  ${status}`);
         }
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(ui.error(msg));
+      process.exit(1);
+    }
+  });
+
+// --- kairn evolve apply ---
+evolveCommand
+  .command('apply')
+  .description('Apply the best evolved harness to your project')
+  .option('--iter <n>', 'Apply a specific iteration instead of the best')
+  .option('--force', 'Apply even if git working tree is dirty')
+  .option('--no-commit', 'Skip automatic git commit after applying')
+  .action(async (options: { iter?: string; force?: boolean; commit?: boolean }) => {
+    try {
+      const projectRoot = process.cwd();
+      const workspace = path.join(projectRoot, '.kairn-evolve');
+
+      console.log(ui.section('Evolve Apply'));
+
+      // Verify workspace exists
+      try {
+        await fs.access(workspace);
+      } catch {
+        console.log(ui.error('No .kairn-evolve/ directory found. Run kairn evolve init first.'));
+        process.exit(1);
+      }
+
+      // Parse --iter option
+      let targetIteration: number | undefined;
+      if (options.iter) {
+        targetIteration = parseInt(options.iter, 10);
+        if (isNaN(targetIteration)) {
+          console.log(ui.error('--iter must be a number'));
+          process.exit(1);
+        }
+      }
+
+      const result = await applyEvolution(workspace, projectRoot, targetIteration);
+
+      // Show diff preview
+      if (result.diffPreview) {
+        console.log(ui.section('Changes'));
+        for (const line of result.diffPreview.split('\n')) {
+          if (line.startsWith('---') || line.startsWith('+++')) {
+            console.log(chalk.bold(line));
+          } else if (line.startsWith('+')) {
+            console.log(chalk.green(line));
+          } else if (line.startsWith('-')) {
+            console.log(chalk.red(line));
+          } else {
+            console.log(line);
+          }
+        }
+      }
+
+      console.log('');
+      console.log(ui.success(
+        `Applied iteration ${result.iteration} harness (${result.filesChanged.length} files)`,
+      ));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log(ui.error(msg));
