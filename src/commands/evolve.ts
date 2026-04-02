@@ -21,7 +21,7 @@ import type { EvolveConfig, Task, TasksFile, TaskResult, LoopProgressEvent } fro
 
 const DEFAULT_CONFIG: EvolveConfig = {
   model: 'claude-sonnet-4-6',
-  proposerModel: 'claude-opus-4-6',
+  proposerModel: 'claude-sonnet-4-6',
   scorer: 'pass-fail',
   maxIterations: 5,
   parallelTasks: 1,
