@@ -313,31 +313,31 @@ Full design doc: [`docs/design/v2.5-intent-routing.md`](docs/design/v2.5-intent-
 - [x] New eval dimensions: fs.promises convention, chalk color mapping, error boundary pattern, security path validation, conventional commit format, @inquirer/prompts check, env\_ ID prefix
 - [x] Clean baseline reset (remove permission-workaround mutations from prior iterations)
 
-### v2.6.0 — Population-Based Harness Evolution [NEXT]
+### v2.6.0 ✅ SHIPPED — Population-Based Harness Evolution
 > A single sequential trajectory wastes wall-clock time on dead ends and overfits to its task sample. PBT runs N independent trajectories with different task subsets, a Meta-Principal synthesizes the best harness, Thompson Sampling drives uncertainty-aware task selection, and KL regularization prevents harness bloat.
 
 Full plan: [`PLAN-v2.6.0.md`](PLAN-v2.6.0.md)
 
 **Thompson Sampling (uncertainty-driven task selection):**
-- [ ] Beta distribution per task (`alpha`/`beta` params) — uncertain tasks sampled more often
-- [ ] Replaces uniform random mini-batch sampling in `loop.ts`
-- [ ] Beliefs persist across iterations in `task-beliefs.json`
-- [ ] `--sampling thompson|uniform` CLI flag (Thompson is default)
+- [x] Beta distribution per task (`alpha`/`beta` params) — uncertain tasks sampled more often
+- [x] Replaces uniform random mini-batch sampling in `loop.ts`
+- [x] Beliefs persist across iterations in `task-beliefs.json`
+- [x] `--sampling thompson|uniform` CLI flag (Thompson is default)
 
 **KL Regularization (complexity penalty):**
-- [ ] `measureComplexity()` — counts lines, files, sections, rules across harness
-- [ ] `computeComplexityCost()` — weighted diff from baseline (normalized 0-1)
-- [ ] `effective_score = raw_score - λ * complexityCost * 100`
-- [ ] `--kl-lambda` CLI flag (default: 0.1, 0 = disabled)
-- [ ] Prevents CLAUDE.md bloat — proposer must earn every addition
+- [x] `measureComplexity()` — counts lines, files, sections, rules across harness
+- [x] `computeComplexityCost()` — weighted diff from baseline (normalized 0-1)
+- [x] `effective_score = raw_score - λ * complexityCost * 100`
+- [x] `--kl-lambda` CLI flag (default: 0.1, 0 = disabled)
+- [x] Prevents CLAUDE.md bloat — proposer must earn every addition
 
 **Population-Based Training (parallel evolution branches):**
-- [ ] `kairn evolve pbt` — spawn N parallel evolution trajectories (default: 3)
-- [ ] Each branch: independent workspace, unique RNG seed, own Thompson beliefs
-- [ ] Branches run concurrently — similar wall time to single run, 3x exploration
-- [ ] Meta-Principal reads ALL branch results, cherry-picks best mutations, synthesizes final harness
-- [ ] Synthesis evaluated against full task suite — must beat best individual branch
-- [ ] `kairn evolve apply --pbt` to deploy the winning harness
+- [x] `kairn evolve pbt` — spawn N parallel evolution trajectories (default: 3)
+- [x] Each branch: independent workspace, unique RNG seed, own Thompson beliefs
+- [x] Branches run concurrently — similar wall time to single run, 3x exploration
+- [x] Meta-Principal reads ALL branch results, cherry-picks best mutations, synthesizes final harness
+- [x] Synthesis evaluated against full task suite — must beat best individual branch
+- [x] `kairn evolve apply --pbt` to deploy the winning harness
 
 ### v2.7.0 — Structured Harness IR
 > Raw Markdown mutation will corrupt formatting, accumulate contradictions, and break as files grow. A structured intermediate representation makes mutations composable, diffing meaningful, and format migration tractable.
