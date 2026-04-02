@@ -127,6 +127,7 @@ export async function llmJudgeScorer(
     const response = await callLLM(config, userMessage, {
       systemPrompt: JUDGE_SYSTEM_PROMPT,
       maxTokens: 1024,
+      cacheControl: true,
     });
 
     // Parse JSON response, stripping markdown code fences if present
@@ -197,6 +198,7 @@ export async function rubricScorer(
       const response = await callLLM(config, userMessage, {
         systemPrompt: RUBRIC_SYSTEM_PROMPT,
         maxTokens: 512,
+        cacheControl: true,
       });
 
       let cleaned = response.trim();
