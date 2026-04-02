@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "kairn": "./bin/kairn.js"
+    "kairn": "bin/kairn.js"
   },
   "files": [
     "bin/",
@@ -36,7 +36,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ashtonperlroth/kairn"
+    "url": "git+https://github.com/ashtonperlroth/kairn.git"
   },
   "homepage": "https://github.com/ashtonperlroth/kairn#readme",
   "engines": {
