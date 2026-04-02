@@ -35,10 +35,9 @@ import type {
   AgentResult,
   AgentTask,
   CompilationPlan,
-  ExecuteAgentFn,
-  ProjectContext,
 } from "../agents/types.js";
 import { TruncationError } from "../agents/types.js";
+import type { ExecuteAgentFn } from "../batch.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -249,7 +248,7 @@ describe("linkHarness fixes broken references", () => {
     expect(deployCmd!.content).toContain("Run the deployment.");
 
     // Report should note the fix
-    expect(report.fixed.some((f) => f.type === "broken-agent-ref")).toBe(true);
+    expect(report.autoFixes.some((f) => f.includes("nonexistent-agent"))).toBe(true);
   });
 
   it("preserves valid @agent references in command content", () => {
@@ -282,8 +281,8 @@ describe("linkHarness fixes broken references", () => {
     const ruleNames = patched.rules.map((r) => r.name);
     expect(ruleNames).toContain("security");
     expect(ruleNames).toContain("continuity");
-    expect(report.injectedRules).toContain("security");
-    expect(report.injectedRules).toContain("continuity");
+    expect(report.autoFixes.some((f) => f.includes("security"))).toBe(true);
+    expect(report.autoFixes.some((f) => f.includes("continuity"))).toBe(true);
   });
 
   it("does not duplicate existing security and continuity rules", () => {
@@ -302,7 +301,7 @@ describe("linkHarness fixes broken references", () => {
     const continuityRules = patched.rules.filter((r) => r.name === "continuity");
     expect(continuityRules).toHaveLength(1);
 
-    expect(report.injectedRules).toHaveLength(0);
+    expect(report.autoFixes.filter((f) => f.includes("rule")).length).toBe(0);
   });
 
   it("injects /project:help command when missing", () => {
@@ -315,7 +314,7 @@ describe("linkHarness fixes broken references", () => {
 
     const helpCmd = patched.commands.find((c) => c.name === "help");
     expect(helpCmd).toBeDefined();
-    expect(report.fixed.some((f) => f.type === "missing-command")).toBe(true);
+    expect(report.autoFixes.some((f) => f.includes("help"))).toBe(true);
   });
 
   it("does not mutate the original IR", () => {
@@ -338,14 +337,7 @@ describe("linkHarness fixes broken references", () => {
 describe("executePlan produces complete IR from mock agents", () => {
   it("merges results from multiple phases into a single IR", async () => {
     const plan: CompilationPlan = {
-      project_context: {
-        intent: "Build a CLI tool",
-        name: "CLI Project",
-        description: "A command-line tool",
-        tech_stack: ["TypeScript"],
-        workflow_type: "cli",
-        autonomy_level: 2,
-      },
+      project_context: "CLI Project: A command-line tool using TypeScript",
       phases: [
         {
           id: "phase-a",
@@ -373,7 +365,7 @@ describe("executePlan produces complete IR from mock agents", () => {
       switch (task.agent) {
         case "sections-writer":
           return {
-            type: "sections",
+            agent: "sections-writer",
             sections: [
               createSection("purpose", "## Purpose", "Build a CLI.", 1),
               createSection("tech-stack", "## Tech Stack", "TypeScript", 2),
@@ -381,17 +373,17 @@ describe("executePlan produces complete IR from mock agents", () => {
           };
         case "rule-writer":
           return {
-            type: "rules",
+            agent: "rule-writer",
             rules: [createRuleNode("security", "No secrets.")],
           };
         case "doc-writer":
           return {
-            type: "docs",
+            agent: "doc-writer",
             docs: [{ name: "DECISIONS", content: "# Decisions" } as DocNode],
           };
         case "command-writer":
           return {
-            type: "commands",
+            agent: "command-writer",
             commands: [
               createCommandNode("build", "Run npm run build."),
               createCommandNode("test", "Run npm test."),
@@ -399,7 +391,7 @@ describe("executePlan produces complete IR from mock agents", () => {
           };
         case "agent-writer":
           return {
-            type: "agents",
+            agent: "agent-writer",
             agents: [createAgentNode("reviewer", "Review code.")],
           };
         default:
@@ -436,24 +428,17 @@ describe("executePlan produces complete IR from mock agents", () => {
     const executionOrder: string[] = [];
 
     const plan: CompilationPlan = {
-      project_context: {
-        intent: "test",
-        name: "Test",
-        description: "test",
-        tech_stack: [],
-        workflow_type: "test",
-        autonomy_level: 2,
-      },
+      project_context: "Test: test project",
       phases: [
-        {
-          id: "phase-b",
-          agents: [{ agent: "command-writer", items: ["build"], max_tokens: 2048 }],
-          dependsOn: ["phase-a"],
-        },
         {
           id: "phase-a",
           agents: [{ agent: "sections-writer", items: ["purpose"], max_tokens: 2048 }],
           dependsOn: [],
+        },
+        {
+          id: "phase-b",
+          agents: [{ agent: "command-writer", items: ["build"], max_tokens: 2048 }],
+          dependsOn: ["phase-a"],
         },
       ],
     };
@@ -463,9 +448,9 @@ describe("executePlan produces complete IR from mock agents", () => {
     ): Promise<AgentResult> => {
       executionOrder.push(task.agent);
       if (task.agent === "sections-writer") {
-        return { type: "sections", sections: [createSection("purpose", "## Purpose", "Test.", 0)] };
+        return { agent: "sections-writer" as const, sections: [createSection("purpose", "## Purpose", "Test.", 0)] };
       }
-      return { type: "commands", commands: [createCommandNode("build", "Build.")] };
+      return { agent: "command-writer" as const, commands: [createCommandNode("build", "Build.")] };
     };
 
     await executePlan(plan, mockExecuteAgent, 1);
@@ -487,9 +472,8 @@ describe("generateDefaultPlan produces valid compilation plan", () => {
     const plan = generateDefaultPlan(skeleton);
 
     // Should have project context
-    expect(plan.project_context.name).toBe("Test Project");
-    expect(plan.project_context.tech_stack).toEqual(["TypeScript", "Node.js"]);
-    expect(plan.project_context.workflow_type).toBe("backend-api");
+    expect(plan.project_context).toContain("Test Project");
+    expect(typeof plan.project_context).toBe("string");
 
     // Should have exactly 2 phases
     expect(plan.phases).toHaveLength(2);
@@ -588,11 +572,12 @@ describe("generateDefaultPlan produces valid compilation plan", () => {
     expect(skillWriter!.items).toContain("tdd");
   });
 
-  it("passes intent to project context when provided", () => {
+  it("has a string project_context describing the project", () => {
     const skeleton = createTestSkeleton();
-    const plan = generateDefaultPlan(skeleton, "Build an API service");
+    const plan = generateDefaultPlan(skeleton);
 
-    expect(plan.project_context.intent).toBe("Build an API service");
+    expect(typeof plan.project_context).toBe("string");
+    expect(plan.project_context.length).toBeGreaterThan(0);
   });
 });
 
@@ -603,14 +588,7 @@ describe("generateDefaultPlan produces valid compilation plan", () => {
 describe("error isolation in batch execution", () => {
   it("single agent failure causes entire phase to fail", async () => {
     const plan: CompilationPlan = {
-      project_context: {
-        intent: "test",
-        name: "Test",
-        description: "test",
-        tech_stack: [],
-        workflow_type: "test",
-        autonomy_level: 2,
-      },
+      project_context: "Test: test project",
       phases: [
         {
           id: "phase-a",
@@ -630,7 +608,7 @@ describe("error isolation in batch execution", () => {
         throw new Error("LLM API error: model overloaded");
       }
       return {
-        type: "sections",
+        agent: "sections-writer" as const,
         sections: [createSection("purpose", "## Purpose", "A purpose.", 0)],
       };
     };
@@ -653,14 +631,7 @@ describe("TruncationError retry in batch execution", () => {
     const seenMaxTokens: number[] = [];
 
     const plan: CompilationPlan = {
-      project_context: {
-        intent: "test",
-        name: "Test",
-        description: "test",
-        tech_stack: [],
-        workflow_type: "test",
-        autonomy_level: 2,
-      },
+      project_context: "Test: test project",
       phases: [
         {
           id: "phase-a",
@@ -679,11 +650,11 @@ describe("TruncationError retry in batch execution", () => {
       seenMaxTokens.push(task.max_tokens);
 
       if (callCount === 1) {
-        throw new TruncationError("sections-writer", 2048);
+        throw new TruncationError("Truncated at 2048 tokens", { agentName: "sections-writer", tokensUsed: 2048 });
       }
 
       return {
-        type: "sections",
+        agent: "sections-writer" as const,
         sections: [createSection("purpose", "## Purpose", "Retry succeeded.", 0)],
       };
     };
@@ -706,14 +677,7 @@ describe("TruncationError retry in batch execution", () => {
     let callCount = 0;
 
     const plan: CompilationPlan = {
-      project_context: {
-        intent: "test",
-        name: "Test",
-        description: "test",
-        tech_stack: [],
-        workflow_type: "test",
-        autonomy_level: 2,
-      },
+      project_context: "Test: test project",
       phases: [
         {
           id: "phase-a",
@@ -756,7 +720,7 @@ describe("full pipeline: plan -> execute -> link", () => {
         custom_skills: [],
       },
     });
-    const plan = generateDefaultPlan(skeleton, "Build an Express API");
+    const plan = generateDefaultPlan(skeleton);
 
     // Step 2: Execute plan with mock agents
     const mockExecuteAgent: ExecuteAgentFn = async (
@@ -765,7 +729,7 @@ describe("full pipeline: plan -> execute -> link", () => {
       switch (task.agent) {
         case "sections-writer":
           return {
-            type: "sections",
+            agent: "sections-writer",
             sections: [
               createSection("preamble", "# Express API", "An API project.", 0),
               createSection("purpose", "## Purpose", "Build an Express API.", 1),
@@ -773,7 +737,7 @@ describe("full pipeline: plan -> execute -> link", () => {
           };
         case "rule-writer":
           return {
-            type: "rules",
+            agent: "rule-writer",
             rules: [
               createRuleNode("security", "No secrets."),
               createRuleNode("continuity", "Track decisions."),
@@ -781,7 +745,7 @@ describe("full pipeline: plan -> execute -> link", () => {
           };
         case "doc-writer":
           return {
-            type: "docs",
+            agent: "doc-writer",
             docs: [
               { name: "DECISIONS", content: "# Decisions" },
               { name: "LEARNINGS", content: "# Learnings" },
@@ -790,21 +754,21 @@ describe("full pipeline: plan -> execute -> link", () => {
           };
         case "command-writer":
           return {
-            type: "commands",
+            agent: "command-writer",
             commands: task.items.map((item) =>
               createCommandNode(item, `Run ${item} task.`),
             ),
           };
         case "agent-writer":
           return {
-            type: "agents",
+            agent: "agent-writer",
             agents: task.items.map((item) =>
               createAgentNode(item, `You are the ${item} agent.`),
             ),
           };
         case "skill-writer":
           return {
-            type: "skills",
+            agent: "skill-writer",
             skills: task.items.map((item) => ({
               name: item,
               content: `Skill: ${item}`,
