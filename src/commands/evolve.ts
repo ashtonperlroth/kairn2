@@ -31,6 +31,9 @@ const DEFAULT_CONFIG: EvolveConfig = {
   maxTaskDrop: 20,
   usePrincipal: false,
   evalSampleSize: 0,
+  samplingStrategy: 'thompson',
+  klLambda: 0.1,
+  pbtBranches: 3,
 };
 
 /**
@@ -53,6 +56,9 @@ export async function loadEvolveConfigFromWorkspace(workspacePath: string): Prom
       maxTaskDrop: (parsed.max_task_drop as number) ?? DEFAULT_CONFIG.maxTaskDrop,
       usePrincipal: (parsed.use_principal as boolean) ?? DEFAULT_CONFIG.usePrincipal,
       evalSampleSize: (parsed.eval_sample_size as number) ?? DEFAULT_CONFIG.evalSampleSize,
+      samplingStrategy: (parsed.sampling_strategy as EvolveConfig['samplingStrategy']) ?? DEFAULT_CONFIG.samplingStrategy,
+      klLambda: (parsed.kl_lambda as number) ?? DEFAULT_CONFIG.klLambda,
+      pbtBranches: (parsed.pbt_branches as number) ?? DEFAULT_CONFIG.pbtBranches,
     };
   } catch {
     return { ...DEFAULT_CONFIG };
@@ -211,8 +217,10 @@ evolveCommand
   .option('--max-task-drop <n>', 'Roll back if any task drops more than N points', '20')
   .option('--principal', 'Run Principal Proposer as final iteration')
   .option('--eval-sample <n>', 'Sample N tasks per middle iteration (0 = all)', '0')
+  .option('--sampling <strategy>', 'Task sampling strategy: thompson or uniform', 'thompson')
+  .option('--kl-lambda <n>', 'KL regularization strength (0 = disabled)', '0.1')
   .option('-i, --interactive', 'Configure evolution settings interactively')
-  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string; principal?: boolean; evalSample?: string; interactive?: boolean }) => {
+  .action(async (options: { task?: string; iterations?: string; runs?: string; parallel?: string; maxMutations?: string; pruneThreshold?: string; maxTaskDrop?: string; principal?: boolean; evalSample?: string; sampling?: string; klLambda?: string; interactive?: boolean }) => {
     try {
       const projectRoot = process.cwd();
       const workspace = path.join(projectRoot, '.kairn-evolve');
@@ -298,7 +306,8 @@ evolveCommand
         const hasExplicitFlags = options.iterations !== '5' || options.runs !== '1' ||
           options.parallel !== '1' || options.maxMutations !== '3' ||
           options.pruneThreshold !== '95' || options.maxTaskDrop !== '20' ||
-          options.principal || options.evalSample !== '0';
+          options.principal || options.evalSample !== '0' ||
+          options.sampling !== 'thompson' || options.klLambda !== '0.1';
 
         if (!hasExplicitFlags) {
           // Interactive configuration menu
@@ -351,7 +360,8 @@ evolveCommand
           console.log(chalk.dim(`  Iterations: ${evolveConfig.maxIterations}, Runs: ${evolveConfig.runsPerTask}, Parallel: ${evolveConfig.parallelTasks}`));
           console.log(chalk.dim(`  Mutations: ${evolveConfig.maxMutationsPerIteration}, Prune: ${evolveConfig.pruneThreshold}%, Guard: ${evolveConfig.maxTaskDrop}pt`));
           if (evolveConfig.usePrincipal) console.log(chalk.dim('  Principal Proposer: enabled'));
-          if (evolveConfig.evalSampleSize > 0) console.log(chalk.dim(`  Eval sampling: ${evolveConfig.evalSampleSize} tasks/iter`));
+          if (evolveConfig.evalSampleSize > 0) console.log(chalk.dim(`  Eval sampling: ${evolveConfig.evalSampleSize} tasks/iter (${evolveConfig.samplingStrategy})`));
+          if (evolveConfig.klLambda > 0) console.log(chalk.dim(`  KL regularization: λ=${evolveConfig.klLambda}`));
           console.log('');
         } else {
           // Flag-based configuration
@@ -407,6 +417,20 @@ evolveCommand
             process.exit(1);
           }
           evolveConfig.evalSampleSize = evalSample;
+
+          const sampling = options.sampling ?? 'thompson';
+          if (sampling !== 'thompson' && sampling !== 'uniform') {
+            console.log(ui.error('--sampling must be "thompson" or "uniform"'));
+            process.exit(1);
+          }
+          evolveConfig.samplingStrategy = sampling;
+
+          const klLambda = parseFloat(options.klLambda ?? '0.1');
+          if (isNaN(klLambda) || klLambda < 0) {
+            console.log(ui.error('--kl-lambda must be a non-negative number'));
+            process.exit(1);
+          }
+          evolveConfig.klLambda = klLambda;
         }
 
         // Verify baseline exists
@@ -483,7 +507,7 @@ evolveCommand
         console.log('');
 
         // Iteration table
-        const showVariance = runs > 1;
+        const showVariance = evolveConfig.runsPerTask > 1;
         console.log(showVariance
           ? '  Iter  Score        Mutations  Status'
           : '  Iter  Score     Mutations  Status');
@@ -512,6 +536,125 @@ evolveCommand
           console.log(`  ${iter.iteration.toString().padStart(4)}  ${scoreDisplay}  ${mutStr.padStart(9)}  ${status}`);
         }
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(ui.error(msg));
+      process.exit(1);
+    }
+  });
+
+// --- kairn evolve pbt ---
+evolveCommand
+  .command('pbt')
+  .description('Run Population-Based Training with parallel evolution branches')
+  .option('--branches <n>', 'Number of parallel branches', '3')
+  .option('--iterations <n>', 'Iterations per branch', '5')
+  .option('--parallel <n>', 'Tasks per branch concurrently', '2')
+  .option('--sampling <strategy>', 'Task sampling strategy: thompson or uniform', 'thompson')
+  .option('--kl-lambda <n>', 'KL regularization strength (0 = disabled)', '0.1')
+  .option('--eval-sample <n>', 'Sample N tasks per middle iteration (0 = all)', '5')
+  .action(async (options: { branches?: string; iterations?: string; parallel?: string; sampling?: string; klLambda?: string; evalSample?: string }) => {
+    try {
+      const projectRoot = process.cwd();
+      const workspace = path.join(projectRoot, '.kairn-evolve');
+
+      console.log(ui.section('Evolve PBT'));
+
+      // Verify workspace exists
+      try {
+        await fs.access(workspace);
+      } catch {
+        console.log(ui.error('No .kairn-evolve/ directory found. Run kairn evolve init first.'));
+        process.exit(1);
+      }
+
+      // Verify baseline exists
+      try {
+        await fs.access(path.join(workspace, 'iterations', '0', 'harness'));
+      } catch {
+        console.log(ui.error('No baseline harness found. Run kairn evolve baseline first.'));
+        process.exit(1);
+      }
+
+      const kairnConfig = await loadConfig();
+      if (!kairnConfig) {
+        console.log(ui.error('No config found. Run kairn init first.'));
+        process.exit(1);
+      }
+
+      const evolveConfig = await loadEvolveConfigFromWorkspace(workspace);
+
+      // Parse options
+      const numBranches = parseInt(options.branches ?? '3', 10);
+      evolveConfig.maxIterations = parseInt(options.iterations ?? '5', 10);
+      evolveConfig.parallelTasks = parseInt(options.parallel ?? '2', 10);
+      evolveConfig.evalSampleSize = parseInt(options.evalSample ?? '5', 10);
+      evolveConfig.klLambda = parseFloat(options.klLambda ?? '0.1');
+      const sampling = options.sampling ?? 'thompson';
+      if (sampling === 'thompson' || sampling === 'uniform') {
+        evolveConfig.samplingStrategy = sampling;
+      }
+
+      // Load tasks
+      const tasksPath = path.join(workspace, 'tasks.yaml');
+      const tasksContent = await fs.readFile(tasksPath, 'utf-8');
+      const parsed = yamlParse(tasksContent) as TasksFile;
+      if (!parsed?.tasks || parsed.tasks.length === 0) {
+        console.log(ui.error('No tasks found in tasks.yaml'));
+        process.exit(1);
+      }
+
+      console.log(chalk.dim(`  Branches: ${numBranches}, Iterations: ${evolveConfig.maxIterations}, Parallel: ${evolveConfig.parallelTasks}`));
+      console.log(chalk.dim(`  Sampling: ${evolveConfig.samplingStrategy}, KL Lambda: ${evolveConfig.klLambda}`));
+      console.log('');
+
+      const { runPopulation } = await import('../evolve/population.js');
+
+      const result = await runPopulation(
+        workspace,
+        parsed.tasks,
+        kairnConfig,
+        evolveConfig,
+        numBranches,
+        (event) => {
+          const branchPrefix = event.branchId !== undefined ? chalk.dim(`[branch ${event.branchId}] `) : '';
+          switch (event.type) {
+            case 'iteration-start':
+              console.log(`${branchPrefix}${ui.section(`Iteration ${event.iteration}`)}`);
+              break;
+            case 'iteration-scored': {
+              const scoreColor = event.score !== undefined && event.score >= 100
+                ? chalk.green
+                : event.score !== undefined && event.score >= 60
+                  ? chalk.yellow
+                  : chalk.red;
+              console.log(`${branchPrefix}  Score: ${scoreColor((event.score?.toFixed(1) ?? '0') + '%')}`);
+              break;
+            }
+            case 'complete':
+              break;
+            default:
+              if (event.message) {
+                console.log(`${branchPrefix}  ${chalk.dim(event.message)}`);
+              }
+              break;
+          }
+        },
+      );
+
+      // Print PBT summary
+      console.log(ui.section('PBT Results'));
+      for (const branch of result.branches) {
+        const marker = branch.branchId === result.bestBranch ? chalk.green(' <- BEST') : '';
+        console.log(`  Branch ${branch.branchId}:  ${branch.result.bestScore.toFixed(1)}%  (${branch.result.iterations.length} iterations)${marker}`);
+      }
+      if (result.synthesizedResult) {
+        const synthMarker = result.synthesizedResult.bestScore > result.bestScore ? chalk.green(' <- BEST') : '';
+        console.log(`  ${'─'.repeat(40)}`);
+        console.log(`  Meta-Principal: ${result.synthesizedResult.bestScore.toFixed(1)}%${synthMarker}`);
+      }
+      console.log('');
+      console.log(ui.success(`Best: Branch ${result.bestBranch} with ${result.bestScore.toFixed(1)}%`));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.log(ui.error(msg));

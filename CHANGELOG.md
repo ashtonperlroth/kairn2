@@ -7,6 +7,30 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.6.0] — 2026-04-01
+
+### Added
+- **Thompson Sampling for task selection** — Beta-distribution-based uncertainty-driven mini-batch sampling replaces uniform random; tasks with volatile scores get sampled more often, stable tasks less. `--sampling thompson|uniform` CLI flag (Thompson is default when `evalSampleSize > 0`)
+- **KL Regularization** — complexity penalty prevents harness bloat by measuring lines, files, sections, and character-level diff from baseline. `effective_score = raw_score - λ * complexityCost * 100`. `--kl-lambda` CLI flag (default: 0.1, 0 = disabled)
+- **`kairn evolve pbt`** — Population-Based Training runs N independent evolution branches concurrently (default: 3), each with its own workspace, RNG seed, and Thompson Sampling beliefs. Similar wall time to single run, 3x the exploration
+- **Meta-Principal synthesis** — after all PBT branches complete, a Meta-Principal LLM agent reads all branch results (iteration logs, per-task score matrices, Thompson beliefs, complexity metrics) and synthesizes the optimal harness by cherry-picking the best mutations from each trajectory
+- **Cross-branch score matrix** in synthesis prompt — enables the Meta-Principal to identify mutations that helped across multiple branches vs single-branch flukes
+- **`rawScore` and `complexityCost` fields** in `IterationLog` — track pre-penalty scores and complexity drift per iteration
+
+### Added (internal)
+- `src/evolve/sampling.ts` — Thompson Sampling with Beta distributions (Marsaglia-Tsang gamma sampling)
+- `src/evolve/regularization.ts` — harness complexity measurement and KL penalty
+- `src/evolve/population.ts` — PBT branch manager (parallel evolve calls with workspace isolation)
+- `src/evolve/synthesis.ts` — Meta-Principal cross-branch synthesis (prompt builder + LLM call + evaluation)
+- 49 new tests across 5 test files (sampling, regularization, population, synthesis, PBT integration)
+
+### Changed
+- `EvolveConfig` extended with `samplingStrategy`, `klLambda`, `pbtBranches` fields (all backward-compatible with defaults)
+- `evolve run` displays sampling strategy and KL lambda in config summary
+- Evolution loop uses penalized scores for rollback decisions when KL is active
+
+---
+
 ## [2.5.2] — 2026-04-01
 
 ### Fixed

@@ -313,7 +313,33 @@ Full design doc: [`docs/design/v2.5-intent-routing.md`](docs/design/v2.5-intent-
 - [x] New eval dimensions: fs.promises convention, chalk color mapping, error boundary pattern, security path validation, conventional commit format, @inquirer/prompts check, env\_ ID prefix
 - [x] Clean baseline reset (remove permission-workaround mutations from prior iterations)
 
-### v2.6.0 — Structured Harness IR
+### v2.6.0 ✅ SHIPPED — Population-Based Harness Evolution
+> A single sequential trajectory wastes wall-clock time on dead ends and overfits to its task sample. PBT runs N independent trajectories with different task subsets, a Meta-Principal synthesizes the best harness, Thompson Sampling drives uncertainty-aware task selection, and KL regularization prevents harness bloat.
+
+Full plan: [`PLAN-v2.6.0.md`](PLAN-v2.6.0.md)
+
+**Thompson Sampling (uncertainty-driven task selection):**
+- [x] Beta distribution per task (`alpha`/`beta` params) — uncertain tasks sampled more often
+- [x] Replaces uniform random mini-batch sampling in `loop.ts`
+- [x] Beliefs persist across iterations in `task-beliefs.json`
+- [x] `--sampling thompson|uniform` CLI flag (Thompson is default)
+
+**KL Regularization (complexity penalty):**
+- [x] `measureComplexity()` — counts lines, files, sections, rules across harness
+- [x] `computeComplexityCost()` — weighted diff from baseline (normalized 0-1)
+- [x] `effective_score = raw_score - λ * complexityCost * 100`
+- [x] `--kl-lambda` CLI flag (default: 0.1, 0 = disabled)
+- [x] Prevents CLAUDE.md bloat — proposer must earn every addition
+
+**Population-Based Training (parallel evolution branches):**
+- [x] `kairn evolve pbt` — spawn N parallel evolution trajectories (default: 3)
+- [x] Each branch: independent workspace, unique RNG seed, own Thompson beliefs
+- [x] Branches run concurrently — similar wall time to single run, 3x exploration
+- [x] Meta-Principal reads ALL branch results, cherry-picks best mutations, synthesizes final harness
+- [x] Synthesis evaluated against full task suite — must beat best individual branch
+- [x] `kairn evolve apply --pbt` to deploy the winning harness
+
+### v2.7.0 — Structured Harness IR
 > Raw Markdown mutation will corrupt formatting, accumulate contradictions, and break as files grow. A structured intermediate representation makes mutations composable, diffing meaningful, and format migration tractable.
 
 - [ ] Harness IR: typed data model for CLAUDE.md sections, commands, rules, agents, settings
@@ -322,7 +348,7 @@ Full design doc: [`docs/design/v2.5-intent-routing.md`](docs/design/v2.5-intent-
 - [ ] Diff engine compares IR trees, not string patches
 - [ ] Migration path: parse existing .claude/ → IR → re-render (format upgrade for free)
 
-### v2.7.0 — Polish & Integration
+### v2.8.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)
 - [ ] Integration with `kairn describe` ("generate, then auto-evolve for 3 iterations")
 - [ ] Integration with `kairn optimize` ("audit, then evolve the fixes")
