@@ -360,7 +360,8 @@ evolveCommand
           console.log(chalk.dim(`  Iterations: ${evolveConfig.maxIterations}, Runs: ${evolveConfig.runsPerTask}, Parallel: ${evolveConfig.parallelTasks}`));
           console.log(chalk.dim(`  Mutations: ${evolveConfig.maxMutationsPerIteration}, Prune: ${evolveConfig.pruneThreshold}%, Guard: ${evolveConfig.maxTaskDrop}pt`));
           if (evolveConfig.usePrincipal) console.log(chalk.dim('  Principal Proposer: enabled'));
-          if (evolveConfig.evalSampleSize > 0) console.log(chalk.dim(`  Eval sampling: ${evolveConfig.evalSampleSize} tasks/iter`));
+          if (evolveConfig.evalSampleSize > 0) console.log(chalk.dim(`  Eval sampling: ${evolveConfig.evalSampleSize} tasks/iter (${evolveConfig.samplingStrategy})`));
+          if (evolveConfig.klLambda > 0) console.log(chalk.dim(`  KL regularization: λ=${evolveConfig.klLambda}`));
           console.log('');
         } else {
           // Flag-based configuration
