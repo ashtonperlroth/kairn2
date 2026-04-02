@@ -7,6 +7,19 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.8.0] — 2026-04-02
+
+### Added
+- **Hybrid scoring** — deterministic rubric criteria (shell command checks) alongside LLM-as-judge, with configurable weighted blend
+- **Anthropic prompt caching** — `cacheControl: true` on system prompts for proposer and scorer calls (~85% token savings on repeated invocations)
+- **Targeted re-evaluation** — after mutation, re-run only tasks whose harness files were touched (saves ~40% eval cost per iteration)
+
+### Changed
+- **Default proposer model → Sonnet** — comparable mutation quality at ~5x lower cost than Opus
+- `RubricCriterion` extended with optional `check` field for deterministic scoring
+
+---
+
 ## [2.7.0] — 2026-04-02
 
 ### Added
