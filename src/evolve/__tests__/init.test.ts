@@ -5,6 +5,7 @@ import os from "os";
 import { parse as yamlParse } from "yaml";
 import type { KairnConfig } from "../../types.js";
 import type { EvolveConfig, Task, ProjectProfileSummary } from "../types.js";
+import type { ProjectAnalysis } from "../../analyzer/types.js";
 
 // Mock loadConfig before importing the module under test
 const loadConfigMock = vi.fn();
@@ -498,5 +499,281 @@ describe("autoGenerateTasks", () => {
     await expect(autoGenerateTasks(tempDir, "feature-development")).rejects.toThrow(
       "API rate limited",
     );
+  });
+});
+
+function makeSampleAnalysis(): ProjectAnalysis {
+  return {
+    purpose: "CLI tool for compiling agent environments",
+    domain: "developer-tools",
+    key_modules: [
+      {
+        name: "compiler",
+        path: "src/compiler/",
+        description: "Compiles natural language intent into agent harnesses",
+        responsibilities: ["orchestration", "LLM dispatch", "IR generation"],
+      },
+      {
+        name: "analyzer",
+        path: "src/analyzer/",
+        description: "Analyzes project structure and architecture",
+        responsibilities: ["code sampling", "LLM analysis", "caching"],
+      },
+      {
+        name: "evolve",
+        path: "src/evolve/",
+        description: "Evolutionary optimization loop for harness quality",
+        responsibilities: ["proposal generation", "mutation application", "scoring"],
+      },
+    ],
+    workflows: [
+      {
+        name: "compilation",
+        description: "Transform intent into a Claude Code environment",
+        trigger: "kairn describe or kairn optimize",
+        steps: ["gather intent", "compile via LLM", "write harness files"],
+      },
+      {
+        name: "evolution",
+        description: "Iteratively improve harness quality via automated eval",
+        trigger: "kairn evolve run",
+        steps: ["baseline eval", "propose mutations", "apply and score", "select best"],
+      },
+    ],
+    architecture_style: "modular-cli",
+    deployment_model: "npm-package",
+    dataflow: [
+      { from: "analyzer", to: "compiler", data: "ProjectAnalysis" },
+      { from: "compiler", to: "adapter", data: "HarnessIR" },
+    ],
+    config_keys: [
+      { name: "ANTHROPIC_API_KEY", purpose: "Authentication for Claude API" },
+    ],
+    sampled_files: ["src/cli.ts", "src/compiler/compile.ts"],
+    content_hash: "abc123",
+    analyzed_at: new Date().toISOString(),
+  };
+}
+
+function makeValidTasksJsonWithCategories(): string {
+  return JSON.stringify({
+    tasks: [
+      {
+        id: "convention-check-imports",
+        template: "convention-adherence",
+        description: "Verify all imports use .js extensions",
+        setup: "npm install",
+        expected_outcome: "All imports use .js extensions per CLAUDE.md conventions",
+        scoring: "pass-fail",
+        timeout: 180,
+        category: "harness-sensitivity",
+      },
+      {
+        id: "fix-compiler-off-by-one",
+        template: "real-bug-fix",
+        description: "When compiling with more than 5 sections, the compiler module skips the last section due to an off-by-one error",
+        setup: "npm install && node scripts/inject-bug.js",
+        expected_outcome: "All sections are compiled correctly, test suite passes",
+        scoring: "pass-fail",
+        timeout: 300,
+        category: "substantive",
+      },
+      {
+        id: "add-verbose-flag",
+        template: "real-feature-add",
+        description: "Add a --verbose flag to the analyzer module that prints debug output during code sampling",
+        setup: "npm install",
+        expected_outcome: "The --verbose flag is accepted and produces debug output",
+        scoring: "pass-fail",
+        timeout: 300,
+        category: "substantive",
+      },
+      {
+        id: "what-handles-caching",
+        template: "codebase-question",
+        description: "What module handles analysis caching and what file stores the cache?",
+        setup: "",
+        expected_outcome: "The analyzer module handles caching via src/analyzer/cache.ts, storing results in .kairn-analysis.json",
+        scoring: "llm-judge",
+        timeout: 180,
+        category: "substantive",
+      },
+    ],
+  });
+}
+
+describe("autoGenerateTasks with analysis context", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = path.join(os.tmpdir(), `kairn-analysis-init-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await fs.mkdir(tempDir, { recursive: true });
+    vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("includes project analysis context in LLM prompt when .kairn-analysis.json exists", async () => {
+    loadConfigMock.mockResolvedValueOnce(makeKairnConfig());
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJsonWithCategories());
+
+    // Write analysis cache file
+    const analysis = makeSampleAnalysis();
+    await fs.writeFile(
+      path.join(tempDir, ".kairn-analysis.json"),
+      JSON.stringify({ analysis, content_hash: analysis.content_hash, kairn_version: "2.14.0" }),
+      "utf-8",
+    );
+
+    // Create package.json so buildProjectProfile works
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "test", scripts: { build: "tsc" } }),
+      "utf-8",
+    );
+
+    await autoGenerateTasks(tempDir, "feature-development");
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    // Should include key modules from analysis
+    expect(userMessage).toContain("compiler");
+    expect(userMessage).toContain("analyzer");
+    expect(userMessage).toContain("evolve");
+    // Should include purpose
+    expect(userMessage).toContain("CLI tool for compiling agent environments");
+  });
+
+  it("includes workflow names from analysis in the LLM prompt", async () => {
+    loadConfigMock.mockResolvedValueOnce(makeKairnConfig());
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJsonWithCategories());
+
+    const analysis = makeSampleAnalysis();
+    await fs.writeFile(
+      path.join(tempDir, ".kairn-analysis.json"),
+      JSON.stringify({ analysis, content_hash: analysis.content_hash, kairn_version: "2.14.0" }),
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "test", scripts: { build: "tsc" } }),
+      "utf-8",
+    );
+
+    await autoGenerateTasks(tempDir, "feature-development");
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("compilation");
+    expect(userMessage).toContain("evolution");
+  });
+
+  it("includes module paths from analysis for real-bug-fix task specificity", async () => {
+    loadConfigMock.mockResolvedValueOnce(makeKairnConfig());
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJsonWithCategories());
+
+    const analysis = makeSampleAnalysis();
+    await fs.writeFile(
+      path.join(tempDir, ".kairn-analysis.json"),
+      JSON.stringify({ analysis, content_hash: analysis.content_hash, kairn_version: "2.14.0" }),
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "test", scripts: { build: "tsc" } }),
+      "utf-8",
+    );
+
+    await autoGenerateTasks(tempDir, "feature-development");
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    // Should include module paths so LLM can reference actual files
+    expect(userMessage).toContain("src/compiler/");
+    expect(userMessage).toContain("src/analyzer/");
+    expect(userMessage).toContain("src/evolve/");
+  });
+
+  it("falls back to existing behavior when .kairn-analysis.json is missing", async () => {
+    loadConfigMock.mockResolvedValueOnce(makeKairnConfig());
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "test", scripts: { build: "tsc" } }),
+      "utf-8",
+    );
+
+    const result = await autoGenerateTasks(tempDir, "feature-development");
+
+    expect(result.length).toBe(1);
+    // Should not contain analysis-specific sections
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).not.toContain("## Project Analysis");
+  });
+
+  it("falls back when .kairn-analysis.json contains invalid JSON", async () => {
+    loadConfigMock.mockResolvedValueOnce(makeKairnConfig());
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+
+    await fs.writeFile(
+      path.join(tempDir, ".kairn-analysis.json"),
+      "this is not json",
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "test", scripts: { build: "tsc" } }),
+      "utf-8",
+    );
+
+    const result = await autoGenerateTasks(tempDir, "feature-development");
+
+    // Should still work, falling back to no-analysis behavior
+    expect(result.length).toBe(1);
+  });
+
+  it("includes architecture style and deployment model from analysis", async () => {
+    loadConfigMock.mockResolvedValueOnce(makeKairnConfig());
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJsonWithCategories());
+
+    const analysis = makeSampleAnalysis();
+    await fs.writeFile(
+      path.join(tempDir, ".kairn-analysis.json"),
+      JSON.stringify({ analysis, content_hash: analysis.content_hash, kairn_version: "2.14.0" }),
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "test", scripts: { build: "tsc" } }),
+      "utf-8",
+    );
+
+    await autoGenerateTasks(tempDir, "feature-development");
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("modular-cli");
+    expect(userMessage).toContain("npm-package");
+  });
+
+  it("includes config keys from analysis for codebase-question specificity", async () => {
+    loadConfigMock.mockResolvedValueOnce(makeKairnConfig());
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJsonWithCategories());
+
+    const analysis = makeSampleAnalysis();
+    await fs.writeFile(
+      path.join(tempDir, ".kairn-analysis.json"),
+      JSON.stringify({ analysis, content_hash: analysis.content_hash, kairn_version: "2.14.0" }),
+      "utf-8",
+    );
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "test", scripts: { build: "tsc" } }),
+      "utf-8",
+    );
+
+    await autoGenerateTasks(tempDir, "feature-development");
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("ANTHROPIC_API_KEY");
   });
 });

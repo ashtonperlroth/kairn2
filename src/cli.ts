@@ -15,6 +15,7 @@ import { registryCommand } from "./commands/registry.js";
 import { templatesCommand } from "./commands/templates.js";
 import { keysCommand } from "./commands/keys.js";
 import { evolveCommand } from "./commands/evolve.js";
+import { analyzeCommand } from "./commands/analyze.js";
 
 const program = new Command();
 
@@ -37,6 +38,7 @@ program.addCommand(registryCommand);
 program.addCommand(templatesCommand);
 program.addCommand(keysCommand);
 program.addCommand(evolveCommand);
+program.addCommand(analyzeCommand);
 
 // Check for --no-color before parsing (Commander handles it but chalk needs manual disable)
 if (process.argv.includes("--no-color") || process.env.NO_COLOR) {

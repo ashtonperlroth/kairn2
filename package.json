@@ -1,6 +1,6 @@
 {
   "name": "kairn-cli",
-  "version": "2.13.0",
+  "version": "2.15.0",
   "description": "Compile natural language intent into optimized Claude Code environments",
   "author": "Ashton Perlroth",
   "license": "MIT",
@@ -50,6 +50,7 @@
     "kairn-cli": "^1.7.0",
     "openai": "^6.33.0",
     "ora": "^9.3.0",
+    "repomix": "^1.13.1",
     "yaml": "^2.7.0"
   },
   "devDependencies": {

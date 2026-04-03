@@ -1,5 +1,8 @@
 // Eval templates
-export type EvalTemplate = 'add-feature' | 'fix-bug' | 'refactor' | 'test-writing' | 'config-change' | 'documentation' | 'convention-adherence' | 'workflow-compliance' | 'rule-compliance' | 'intent-routing' | 'persistence-completion';
+export type EvalTemplate = 'add-feature' | 'fix-bug' | 'refactor' | 'test-writing' | 'config-change' | 'documentation' | 'convention-adherence' | 'workflow-compliance' | 'rule-compliance' | 'intent-routing' | 'persistence-completion' | 'real-bug-fix' | 'real-feature-add' | 'codebase-question';
+
+/** Category distinguishing harness-sensitivity probes from substantive SWE-bench-style tasks. */
+export type TemplateCategory = 'harness-sensitivity' | 'substantive';
 
 // Rubric criterion for scored evaluations
 export interface RubricCriterion {
@@ -19,6 +22,8 @@ export interface Task {
   scoring: 'pass-fail' | 'llm-judge' | 'rubric';
   rubric?: RubricCriterion[];
   timeout: number;
+  /** Category: harness-sensitivity probes vs. substantive SWE-bench-style tasks. */
+  category?: TemplateCategory;
 }
 
 // Task execution result
@@ -236,6 +241,18 @@ export interface CounterfactualReport {
   entries: CounterfactualEntry[];
 }
 
+/** Per-category score aggregate for evolution reports. */
+export interface CategoryScoreAggregate {
+  score: number;
+  count: number;
+}
+
+/** Breakdown of scores by task category (harness-sensitivity vs. substantive). */
+export interface CategoryBreakdown {
+  harnessAdherence: CategoryScoreAggregate;
+  substantiveTasks: CategoryScoreAggregate;
+}
+
 // Machine-readable evolution report
 export interface EvolutionReport {
   overview: {
@@ -245,6 +262,7 @@ export interface EvolutionReport {
     bestScore: number;
     bestIteration: number;
     improvement: number;
+    categoryBreakdown?: CategoryBreakdown;
   };
   iterations: Array<{
     iteration: number;

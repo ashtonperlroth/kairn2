@@ -238,46 +238,38 @@ Full design doc: [`docs/design/v2.0-kairn-evolve.md`](docs/design/v2.0-kairn-evo
 > The evolution loop is only as good as its eval signal. Before adding features, make measurement trustworthy.
 
 **Eval Quality (the bottleneck):**
-- [ ] Failure taxonomy: was it the harness? the task? the model? the repo state? Log classification per task failure
-- [ ] Canonical benchmark corpus: small set of stable, version-controlled tasks alongside project-specific evals
-- [ ] Confidence intervals: report mean ± stddev across N runs per task in `kairn evolve report`
-- [ ] Custom scoring functions (user-defined scoring scripts in `.kairn-evolve/`)
+- [ ] Failure taxonomy: was it the harness? the task? the model? the repo state? Log classification per task failure *(deferred)*
+- [ ] Canonical benchmark corpus: small set of stable, version-controlled tasks alongside project-specific evals *(deferred)*
+- [ ] Confidence intervals: report mean ± stddev across N runs per task in `kairn evolve report` *(deferred)*
+- [ ] Custom scoring functions (user-defined scoring scripts in `.kairn-evolve/`) *(deferred)*
 
 **Auth & Cost:**
-- [ ] **Claude Code subscription auth (experimental)** — at `kairn init`, offer "Use Claude Code subscription" option that reads OAuth tokens from macOS Keychain (`Claude Code-credentials`), refreshes on expiry, and passes as API key. All LLM calls (compilation, proposer, scorer) bill to user's Claude subscription instead of separate API key. Upfront warning: undocumented, may break. Full system prompt and model selection support (OAuth token = API key for Anthropic SDK). Linux/Windows credential store support TBD.
-- [ ] Prompt caching integration (Anthropic ephemeral caching for trace reads — ~85% token savings)
-- [ ] Cost tracking per iteration (total tokens, USD cost, wall time) in report
+- [ ] **Claude Code subscription auth (experimental)** *(deferred — OAuth approach needs revisiting)*
+- [x] ~~Prompt caching integration~~ — shipped in v2.8.0
+- [ ] Cost tracking per iteration (total tokens, USD cost, wall time) in report *(deferred)*
 
 **Iteration Speed:**
 - [x] ~~Parallel task evaluation~~ — shipped in v2.2.5
 
 **DX Quick Wins:**
-- [ ] Fix hardcoded CLI version → read from package.json dynamically
-- [ ] Capture tool calls & MCP usage from runner output → tool_calls.json
-- [ ] Harness utilization metrics (which tools/agents/rules were used vs available)
+- [ ] Fix hardcoded CLI version → read from package.json dynamically *(deferred)*
+- [ ] Capture tool calls & MCP usage from runner output → tool_calls.json *(deferred)*
+- [ ] Harness utilization metrics (which tools/agents/rules were used vs available) *(deferred)*
 
-### v2.4.0 — Intelligent Evolution (RL-inspired) [NEXT]
-> The evolution loop is a text-space optimization algorithm. These features make it behave more like a proper optimizer: mini-batch sampling, meta-learning, exploration scheduling.
+### v2.4.0 — Intelligent Evolution (RL-inspired) [ABSORBED]
+> Most items absorbed into later versions. Kept for historical reference.
 
 **Principal Proposer (meta-learner):**
-- [ ] After N-1 normal iterations, a separate "Principal" LLM call reads ALL iteration logs (proposals, diffs, score deltas, rollback reasons) and synthesizes a single best harness from the baseline
-- [ ] Different system prompt: "You are reviewing the entire evolution run. Cherry-pick the best mutations, avoid regressions, synthesize the optimal harness."
-- [ ] Evaluated as the final iteration with full eval suite — the intelligent distillation of the entire run's learnings
+- [x] ~~Principal-style synthesis~~ — absorbed into v2.6.0 PBT Meta-Principal and v2.13.0 architect proposer
 
 **Mini-batch eval sampling (stochastic gradient):**
-- [ ] Maintain a pool of 10-15 evals. Each iteration samples K (e.g., 5). Different subsets cycle through.
-- [ ] Implicit regularization: can't overfit to one subset. Broader coverage over many iterations.
-- [ ] Inspired by mini-batch SGD — see different "angles" of the harness each step.
+- [x] ~~Mini-batch sampling~~ — shipped in v2.5.2 (eval_sample_size) and v2.6.0 (Thompson sampling)
 
 **Exploration/exploitation schedule:**
-- [ ] Early iterations: higher mutation cap, bolder changes, diverse eval samples (exploration)
-- [ ] Late iterations: lower mutation cap, conservative refinements, full eval sweep (exploitation)
-- [ ] Like epsilon-greedy with decay, or learning rate warmup → cosine annealing
+- [x] ~~Explore/exploit schedule~~ — shipped in v2.13.0 (configurable schedule: explore-exploit, constant, adaptive)
 
 **Experience replay (cross-run learning):**
-- [ ] Persist a "proposer memory" of what mutations worked/failed across multiple `evolve run` sessions
-- [ ] The proposer reads prior run summaries before proposing — learns from history, not just current traces
-- [ ] This is the data flywheel: each run makes future runs smarter
+- [x] ~~Cross-run learning~~ — shipped in v2.13.0 (knowledge base at `~/.kairn/knowledge/`)
 
 ### v2.5.0 ✅ — Intent-Aware Harnesses (Two-Tier Evolving Router)
 > "No commands to memorize, just describe what you want" — but project-specific, compiled from the codebase, and self-improving. Inspired by OMC's keyword detection but uses Claude Code's native prompt hooks for semantic fallback.
@@ -444,7 +436,7 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 **UX: Multi-phase progress display:**
 - [x] Phase-by-phase progress (Pass 2 plan → Pass 3a parallel → Pass 3b parallel → Pass 3c linker)
 - [x] Per-agent retry visibility (`⚠ @agent-writer truncated, retrying...`)
-- [ ] Individual agent failure isolation (one agent fails ≠ whole compilation fails) — deferred to v2.12
+- [ ] Individual agent failure isolation (one agent fails ≠ whole compilation fails) *(deferred — low priority, current retry logic sufficient)*
 
 ### v2.12.0 — Generation Quality ([design doc](docs/design/v2.12-generation-quality.md), [plan](PLAN-v2.12.0.md))
 > First real-world test (inferix — Python/Docker ML project) exposed 6 critical generation flaws. CLAUDE.md hallucinated project structure, intent router false-positives on common English, hardcoded Node.js permissions for Python projects, empty scaffold docs waste context, .env injection contradicts deny rules. Rules and safety hooks praised as strong.
@@ -508,7 +500,77 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 - [x] Late iterations: conservative refinement (1-2 mutations, full eval sweep)
 - [x] Configurable schedule: `--schedule explore-exploit` or `--schedule constant`
 
-### v2.14.0 — Polish & Integration
+### v2.14.0 — Semantic Codebase Analyzer ([plan](PLAN-v2.14.0.md))
+> The scanner extracts a project's bill of materials (name, deps, scripts) but not its meaning (what the code does, how modules interact, the domain). This is why generated harnesses are generic — the LLM agents never see source code. v2.14.0 adds a semantic analysis stage between scan and compile that reads actual source files, extracts domain knowledge via LLM, and produces a structured `ProjectAnalysis` that enriches the compilation intent. Uses [Repomix](https://github.com/yamadashy/repomix) for intelligent file sampling, language-specific heuristics for prioritization, and fails hard if analysis cannot be completed (no hallucinated harnesses).
+
+**Codebase Analyzer (`kairn analyze`):**
+- [x] `analyzeProject()` function — new stage between `scanProject()` and `compile()`
+- [x] Repomix integration — use as library for intelligent file packing with token budget (5000 tokens)
+- [x] Language-specific sampling strategies (Python, TypeScript, Go, Rust) — entry points, domain patterns, exclude patterns
+- [x] Always-include files: README.md, README.rst, config files (*.toml, *.yaml, *.yml)
+- [x] LLM semantic analysis — produces structured `ProjectAnalysis` JSON from sampled code
+- [x] `kairn analyze` standalone command — run analysis and display results without compiling
+- [x] `kairn analyze --refresh` — force re-analysis, bypassing cache
+
+**ProjectAnalysis schema (structured JSON output):**
+- [x] `purpose` — one-line project goal (specific: "Bayesian posterior estimation for PK models", not "data processing")
+- [x] `domain` — category (e.g., "simulation-based inference", "web API", "CLI tool")
+- [x] `key_modules[]` — name, path, description, responsibilities for each major component
+- [x] `workflows[]` — name, description, trigger, steps for main user/system flows
+- [x] `architecture_style` — how the project is structured (monolithic, microservice, plugin, etc.)
+- [x] `deployment_model` — how it runs (serverless, containerized, CLI, etc.)
+- [x] `dataflow[]` — from/to/data edges showing how data moves between modules
+- [x] `config_keys[]` — name/purpose for environment variables and configuration
+
+**Analysis caching:**
+- [x] Cache `ProjectAnalysis` to `.kairn-analysis.json` in project root
+- [x] Cache includes content hash of sampled files — invalidates on source changes
+- [x] `kairn optimize` reads cache if valid, skips re-analysis
+- [x] `kairn analyze --refresh` forces re-analysis regardless of cache
+
+**Pipeline integration:**
+- [x] `buildOptimizeIntent()` accepts `ProjectAnalysis` alongside `ProjectProfile`
+- [x] Enriched intent includes: purpose, domain, key modules with responsibilities, workflows with steps, dataflow edges
+- [x] All compilation agents (sections-writer, command-writer, agent-writer, etc.) receive domain-specific context
+- [x] Fail hard if analyzer cannot produce valid analysis — no fallback to metadata-only (prevents generic output)
+
+**Error handling (fail-hard policy):**
+- [x] `AnalysisError` class with structured error types (no_entry_point, empty_sample, llm_parse_failure)
+- [x] If no source files match sampling heuristics → throw with actionable message
+- [x] If LLM returns unparseable analysis → throw, do not proceed to compile
+- [x] `kairn optimize` shows clear error: "Cannot analyze codebase. Run `kairn analyze` to diagnose."
+
+### v2.15.0 — Context Enrichment & IR Persistence ([plan](PLAN-v2.15.0.md))
+> The analyzer extracts 60K tokens of source code, compresses it to ~1K of ProjectAnalysis, and then every downstream agent only sees the summary. The raw evidence is discarded. Meanwhile, the evolve loop's proposer and architect operate blind — they can read the harness files and traces but have never seen the actual project source code or the structured IR. This version plumbs existing data through to every agent that needs it, and adds SWE-bench-style evaluations to the evolve loop.
+
+**Context enrichment for compilation agents:**
+- [x] Cache packed source code to `.kairn/packed-source.txt` alongside `analysis.json`
+- [x] `buildOptimizeIntent()` accepts `packedSource` parameter — raw code included as evidence section
+- [x] Compilation agents (sections-writer, command-writer, agent-writer, etc.) receive ~62K tokens of context (vs. ~2K today)
+- [x] ProjectAnalysis acts as structured table of contents; packed source is the raw evidence
+
+**Context enrichment for evolve proposers:**
+- [x] `buildProposerUserMessage()` accepts optional `projectContext` (ProjectAnalysis + key source files + HarnessIR)
+- [x] `buildArchitectUserMessage()` accepts same `projectContext`
+- [x] ProjectAnalysis (~1K tokens) always included when available — zero-cost, high signal
+- [x] Key source files (~10K tokens) included for evolve proposers — entry points + domain files subset
+- [x] HarnessIR structure summary included — semantic map of sections, commands, rules, agents, MCP servers
+
+**HarnessIR persistence:**
+- [x] Serialize IR to `iterations/{N}/harness-ir.json` after every mutation application in the evolve loop
+- [x] Persist IR to `.kairn/harness-ir.json` after initial compilation
+- [x] IR available for proposer context, cross-iteration structural diffing, and multi-platform rendering (v3.0 adapter thesis)
+- [x] `kairn analyze --ir` flag to display the current harness IR structure
+
+**SWE-bench-style evaluations for the evolve loop:**
+- [x] New eval template: `real-bug-fix` — apply a known bug, task the agent with fixing it from the issue description alone
+- [x] New eval template: `real-feature-add` — add a small, well-defined feature with acceptance criteria
+- [x] New eval template: `codebase-question` — ask the agent a factual question about the codebase that requires reading source code
+- [x] Eval task generator reads `ProjectAnalysis` to produce domain-specific tasks (not generic harness-sensitivity probes)
+- [x] Mixed eval suite: 50% harness-sensitivity probes (existing), 50% SWE-bench-style substantive tasks (new)
+- [x] Score breakdown in `kairn evolve report`: harness adherence score vs. substantive task score
+
+### v2.16.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)
 - [ ] Integration with `kairn describe` ("generate, then auto-evolve for 3 iterations")
 - [ ] Integration with `kairn optimize` ("audit, then evolve the fixes")

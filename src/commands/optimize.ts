@@ -20,6 +20,10 @@ import type { ProjectProfile } from "../scanner/scan.js";
 import type { EnvironmentSpec } from "../types.js";
 import { ui } from "../ui.js";
 import { printCompactBanner } from "../logo.js";
+import { analyzeProject } from "../analyzer/analyze.js";
+import { AnalysisError } from "../analyzer/types.js";
+import type { ProjectAnalysis } from "../analyzer/types.js";
+import { persistHarnessIR } from "../compiler/persist.js";
 
 interface FileDiff {
   path: string;
@@ -123,7 +127,26 @@ function buildAuditSummary(profile: ProjectProfile): string {
   return lines.join("\n");
 }
 
-function buildOptimizeIntent(profile: ProjectProfile): string {
+/**
+ * Build the compilation intent string from a scanned profile and optional semantic analysis.
+ *
+ * Combines project metadata, harness audit data, and (when available) deep
+ * semantic analysis of the source code into a single intent string that the
+ * compilation agents use to generate an optimized environment.
+ *
+ * When `packedSource` is provided and non-empty, the raw sampled source code
+ * (~60K tokens) is appended as a reference section. This gives compilation
+ * agents direct visibility into the actual codebase rather than relying solely
+ * on the ~1K-token ProjectAnalysis summary.
+ *
+ * @param profile - Scanned project profile from the scanner.
+ * @param analysis - Optional semantic analysis from the analyzer. When provided,
+ *   enriches the intent with purpose, modules, workflows, dataflow, and config keys.
+ * @param packedSource - Optional raw packed source code from Repomix sampling.
+ *   When provided and non-empty, appended as a reference section for agents.
+ * @returns The assembled intent string for the compilation pipeline.
+ */
+export function buildOptimizeIntent(profile: ProjectProfile, analysis?: ProjectAnalysis | null, packedSource?: string): string {
   const parts: string[] = [];
 
   parts.push("## Project Profile (scanned from actual codebase)\n");
@@ -166,6 +189,49 @@ function buildOptimizeIntent(profile: ProjectProfile): string {
     parts.push("The environment should match the actual tech stack, dependencies, and workflows.");
   }
 
+  if (analysis) {
+    parts.push(`\n## Semantic Analysis (from source code)\n`);
+    parts.push(`Purpose: ${analysis.purpose}`);
+    parts.push(`Domain: ${analysis.domain}`);
+    parts.push(`Architecture: ${analysis.architecture_style}`);
+    parts.push(`Deployment: ${analysis.deployment_model}`);
+
+    if (analysis.key_modules.length > 0) {
+      parts.push(`\n### Key Modules`);
+      for (const mod of analysis.key_modules) {
+        parts.push(`- **${mod.name}** (${mod.path}): ${mod.description}`);
+        parts.push(`  Owns: ${mod.responsibilities.join(", ")}`);
+      }
+    }
+
+    if (analysis.workflows.length > 0) {
+      parts.push(`\n### Core Workflows`);
+      for (const wf of analysis.workflows) {
+        parts.push(`- **${wf.name}**: ${wf.description}`);
+        parts.push(`  Trigger: ${wf.trigger}`);
+        parts.push(`  Steps: ${wf.steps.join(" \u2192 ")}`);
+      }
+    }
+
+    if (analysis.dataflow.length > 0) {
+      parts.push(`\n### Dataflow`);
+      for (const edge of analysis.dataflow) {
+        parts.push(`- ${edge.from} \u2192 ${edge.to}: ${edge.data}`);
+      }
+    }
+
+    if (analysis.config_keys.length > 0) {
+      parts.push(`\n### Configuration`);
+      for (const key of analysis.config_keys) {
+        parts.push(`- \`${key.name}\`: ${key.purpose}`);
+      }
+    }
+  }
+
+  if (packedSource) {
+    parts.push(`\n\n## Sampled Source Code (reference for project-specific content)\n\n${packedSource}`);
+  }
+
   return parts.join("\n");
 }
 
@@ -201,6 +267,34 @@ export const optimizeCommand = new Command("optimize")
     if (profile.hasDocker) console.log(ui.kv("Docker:", "yes"));
     if (profile.hasCi) console.log(ui.kv("CI/CD:", "yes"));
     if (profile.envKeys.length > 0) console.log(ui.kv("Env keys:", profile.envKeys.join(", ")));
+
+    // 2a. Semantic analysis
+    console.log(ui.section("Codebase Analysis"));
+    const analysisSpinner = ora({ text: "Analyzing source code...", indent: 2 }).start();
+    let analysis: ProjectAnalysis | null = null;
+    let packedSource = '';
+    try {
+      const result = await analyzeProject(targetDir, profile, config);
+      analysis = result.analysis;
+      packedSource = result.packedSource;
+      analysisSpinner.succeed("Codebase analyzed");
+      console.log(ui.kv("Purpose:", analysis.purpose));
+      console.log(ui.kv("Domain:", analysis.domain));
+      console.log(ui.kv("Modules:", analysis.key_modules.map(m => m.name).join(", ") || "none detected"));
+      console.log(ui.kv("Workflows:", analysis.workflows.map(w => w.name).join(", ") || "none detected"));
+      if (packedSource) {
+        console.log(ui.kv("Source:", `${packedSource.length.toLocaleString()} chars sampled`));
+      }
+    } catch (err) {
+      if (err instanceof AnalysisError) {
+        analysisSpinner.fail("Analysis failed");
+        console.log(ui.errorBox("KAIRN — Analysis Error", `${err.message}\n\nRun \`kairn analyze\` for details.`));
+        process.exit(1);
+      }
+      // Fail hard on all errors — never fall back to metadata-only
+      analysisSpinner.fail("Analysis failed");
+      throw err;
+    }
 
     // 3. Audit existing harness
     if (profile.hasClaudeDir) {
@@ -268,7 +362,7 @@ export const optimizeCommand = new Command("optimize")
     }
 
     // 4. Compile with scanned profile
-    const intent = buildOptimizeIntent(profile);
+    const intent = buildOptimizeIntent(profile, analysis, packedSource);
     let spec;
     const spinner = ora({ text: "Compiling optimized environment...", indent: 2 }).start();
     try {
@@ -281,6 +375,16 @@ export const optimizeCommand = new Command("optimize")
       const msg = err instanceof Error ? err.message : String(err);
       console.log(ui.errorBox("KAIRN — Error", `Optimization failed: ${msg}`));
       process.exit(1);
+    }
+
+    // 4a. Persist HarnessIR for downstream consumers (evolve loop, proposer, architect)
+    if (spec.ir) {
+      try {
+        await persistHarnessIR(targetDir, spec.ir);
+      } catch {
+        // Non-fatal: IR persistence is a best-effort optimization
+        console.log(ui.warn("Could not persist harness IR to .kairn/harness-ir.json"));
+      }
     }
 
     // 5. Show results

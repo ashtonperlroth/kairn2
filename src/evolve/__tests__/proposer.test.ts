@@ -3,6 +3,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { Task, Trace, Proposal, Mutation, IterationLog, Score } from '../types.js';
 import type { KairnConfig } from '../../types.js';
+import type { ProjectAnalysis } from '../../analyzer/types.js';
+import type { ProjectContext } from '../proposer.js';
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
 
@@ -571,6 +573,228 @@ describe('buildProposerUserMessage', () => {
 
     expect(message).toContain('30');
     expect(message).toContain('task-scored');
+  });
+});
+
+// ─── Test helper: ProjectAnalysis fixture ─────────────────────────────────
+
+function makeProjectAnalysis(overrides: Partial<ProjectAnalysis> = {}): ProjectAnalysis {
+  return {
+    purpose: 'CLI tool for compiling agent environments',
+    domain: 'developer-tools',
+    key_modules: [
+      {
+        name: 'compiler',
+        path: 'src/compiler/',
+        description: 'Compiles intent to harness files',
+        responsibilities: ['Parse intent', 'Generate sections'],
+      },
+      {
+        name: 'analyzer',
+        path: 'src/analyzer/',
+        description: 'Analyzes project structure',
+        responsibilities: ['Sample files', 'Call LLM'],
+      },
+    ],
+    workflows: [
+      {
+        name: 'optimize',
+        description: 'Run full optimization pipeline',
+        trigger: 'kairn optimize',
+        steps: ['analyze', 'compile', 'emit'],
+      },
+    ],
+    architecture_style: 'pipeline',
+    deployment_model: 'local CLI',
+    dataflow: [
+      { from: 'analyzer', to: 'compiler', data: 'ProjectAnalysis' },
+    ],
+    config_keys: [
+      { name: 'api_key', purpose: 'Anthropic API authentication' },
+    ],
+    sampled_files: ['src/cli.ts', 'src/compiler/compile.ts'],
+    content_hash: 'abc123',
+    analyzed_at: '2026-04-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+// ─── formatAnalysisForProposer ──────────────────────────────────────────────
+
+describe('formatAnalysisForProposer', () => {
+  it('formats project purpose, domain, and architecture style', async () => {
+    const { formatAnalysisForProposer } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis();
+    const result = formatAnalysisForProposer(analysis);
+
+    expect(result).toContain('CLI tool for compiling agent environments');
+    expect(result).toContain('developer-tools');
+    expect(result).toContain('pipeline');
+  });
+
+  it('lists key modules with paths', async () => {
+    const { formatAnalysisForProposer } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis();
+    const result = formatAnalysisForProposer(analysis);
+
+    expect(result).toContain('compiler');
+    expect(result).toContain('src/compiler/');
+    expect(result).toContain('analyzer');
+    expect(result).toContain('src/analyzer/');
+  });
+
+  it('lists workflows', async () => {
+    const { formatAnalysisForProposer } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis();
+    const result = formatAnalysisForProposer(analysis);
+
+    expect(result).toContain('optimize');
+  });
+
+  it('includes deployment model', async () => {
+    const { formatAnalysisForProposer } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis();
+    const result = formatAnalysisForProposer(analysis);
+
+    expect(result).toContain('local CLI');
+  });
+
+  it('produces compact output under 1500 characters', async () => {
+    const { formatAnalysisForProposer } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis();
+    const result = formatAnalysisForProposer(analysis);
+
+    expect(result.length).toBeLessThan(1500);
+    expect(result.length).toBeGreaterThan(50);
+  });
+
+  it('handles analysis with empty key_modules and workflows', async () => {
+    const { formatAnalysisForProposer } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis({
+      key_modules: [],
+      workflows: [],
+      config_keys: [],
+      dataflow: [],
+    });
+    const result = formatAnalysisForProposer(analysis);
+
+    expect(result).toContain('CLI tool for compiling agent environments');
+    // Should not crash, should produce valid output
+    expect(result.length).toBeGreaterThan(20);
+  });
+});
+
+// ─── buildProposerUserMessage with projectContext ───────────────────────────
+
+describe('buildProposerUserMessage with projectContext', () => {
+  it('includes Project Understanding section when projectContext is provided', async () => {
+    const { buildProposerUserMessage, formatAnalysisForProposer } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis();
+    const projectContext: ProjectContext = {
+      analysis,
+      irSummary: '## Harness Structure (IR)\nSections (3): purpose, tech-stack, commands\nCommands (2): build, test',
+      keySourceFiles: '// src/cli.ts\nconsole.log("hello");',
+    };
+
+    const harnessFiles = { 'CLAUDE.md': '# Harness' };
+    const message = buildProposerUserMessage(harnessFiles, [], [], [], undefined, projectContext);
+
+    expect(message).toContain('## Project Understanding');
+    expect(message).toContain('### Analysis Summary');
+    expect(message).toContain('### Harness Structure');
+    expect(message).toContain('### Key Source Files');
+  });
+
+  it('does NOT include Project Understanding section when projectContext is omitted', async () => {
+    const { buildProposerUserMessage } = await import('../proposer.js');
+
+    const harnessFiles = { 'CLAUDE.md': '# Harness' };
+    const message = buildProposerUserMessage(harnessFiles, [], [], []);
+
+    expect(message).not.toContain('## Project Understanding');
+    expect(message).not.toContain('### Analysis Summary');
+    expect(message).not.toContain('### Harness Structure');
+    expect(message).not.toContain('### Key Source Files');
+  });
+
+  it('includes formatted analysis content in the Project Understanding section', async () => {
+    const { buildProposerUserMessage } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis();
+    const projectContext: ProjectContext = {
+      analysis,
+      irSummary: 'Sections (3): purpose, commands, conventions',
+      keySourceFiles: '// main entry\nexport function main() {}',
+    };
+
+    const message = buildProposerUserMessage({ 'CLAUDE.md': '# H' }, [], [], [], undefined, projectContext);
+
+    // The formatted analysis should appear
+    expect(message).toContain('CLI tool for compiling agent environments');
+    expect(message).toContain('compiler');
+    // IR summary should appear
+    expect(message).toContain('Sections (3): purpose, commands, conventions');
+    // Key source should appear
+    expect(message).toContain('export function main() {}');
+  });
+
+  it('places Project Understanding after harness files and before traces', async () => {
+    const { buildProposerUserMessage } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis();
+    const projectContext: ProjectContext = {
+      analysis,
+      irSummary: 'IR_SUMMARY_MARKER',
+    };
+
+    const traces = [makeTrace({ taskId: 'task-marker' })];
+    const tasks = [makeTask({ id: 'task-marker' })];
+    const message = buildProposerUserMessage(
+      { 'CLAUDE.md': 'HARNESS_MARKER' },
+      traces,
+      tasks,
+      [],
+      undefined,
+      projectContext,
+    );
+
+    const harnessIdx = message.indexOf('HARNESS_MARKER');
+    const projectIdx = message.indexOf('## Project Understanding');
+    const traceIdx = message.indexOf('Execution Traces');
+
+    expect(harnessIdx).toBeGreaterThan(-1);
+    expect(projectIdx).toBeGreaterThan(-1);
+    expect(traceIdx).toBeGreaterThan(-1);
+
+    // harness < project understanding < traces
+    expect(harnessIdx).toBeLessThan(projectIdx);
+    expect(projectIdx).toBeLessThan(traceIdx);
+  });
+
+  it('handles projectContext without keySourceFiles', async () => {
+    const { buildProposerUserMessage } = await import('../proposer.js');
+
+    const analysis = makeProjectAnalysis();
+    const projectContext: ProjectContext = {
+      analysis,
+      irSummary: 'Sections (2): purpose, commands',
+      // no keySourceFiles
+    };
+
+    const message = buildProposerUserMessage({ 'CLAUDE.md': '# H' }, [], [], [], undefined, projectContext);
+
+    expect(message).toContain('## Project Understanding');
+    expect(message).toContain('### Analysis Summary');
+    expect(message).toContain('### Harness Structure');
+    // Key Source Files section should not appear when keySourceFiles is undefined
+    expect(message).not.toContain('### Key Source Files');
   });
 });
 

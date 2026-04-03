@@ -1,258 +1,234 @@
-# Ralph Loop Task: v2.12.0 — Generation Quality
+# Ralph Loop Task: v2.15.0 — Context Enrichment & IR Persistence
 
 ## Context
 
-**Version:** v2.12.0  
-**Branch:** `feature/v2.12.0-generation-quality`  
-**Design doc:** `docs/design/v2.12-generation-quality.md`  
-**Plan:** `PLAN-v2.12.0.md`  
-**ROADMAP:** See `ROADMAP.md` → v2.12.0 section  
-**Current state:** main = v2.11.0 (multi-agent compilation pipeline shipped)
+**Version:** v2.15.0
+**Branch:** `feature/v2.15.0-context-enrichment`
+**Plan:** `PLAN-v2.15.0.md`
+**ROADMAP:** See `ROADMAP.md` → v2.15.0 section
+**Current state:** main = v2.14.0 (Semantic Codebase Analyzer shipped)
 
 ## Goal
 
-Fix 6 critical generation flaws exposed by first real-world test on an existing Python/Docker ML project (inferix):
+Three problems in one release:
 
-1. `describe` hallucinates project structure for existing repos → gate to `optimize`
-2. Intent router false-positives on common English → replace with CLAUDE.md instructions
-3. Hardcoded Node.js permissions for all projects → tech-stack-aware permissions
-4. Empty scaffold docs waste context → living docs with update hooks
-5. Compilation UX is minimal → animated spinner, richer progress
-6. .env injection contradicts deny rule → honest handling
+1. **Compilation agents are context-starved.** The analyzer extracts 60K tokens of source code, compresses it to ~1K of ProjectAnalysis, then discards the raw code. Every compilation agent (sections-writer, command-writer, etc.) only sees the 1K summary → generic output.
+
+2. **Evolve proposers are project-blind.** The proposer and architect have never seen the source code, the ProjectAnalysis, or the structured IR. They optimize a harness for a project they don't understand.
+
+3. **The IR is ephemeral.** The HarnessIR is computed during mutation, used for ~100ms, then garbage collected. It's never persisted or shared.
+
+4. **Evolve evals are shallow.** 100% harness-sensitivity probes (does the agent follow conventions?), 0% substantive tasks (can the agent actually fix bugs and build features?).
 
 ## Pre-Steps (before Phase 1)
 
-1. Verify main is at v2.11.0: `git log --oneline -1 main`
-2. Create feature branch: `git checkout -b feature/v2.12.0-generation-quality`
-3. Bump version: edit `package.json` to `"version": "2.12.0"`
-4. Commit: `git commit -am "chore: bump to v2.12.0"`
+1. Verify main is at v2.14.0: `git log --oneline -1 main`
+2. Create feature branch: `git checkout -b feature/v2.15.0-context-enrichment`
+3. Bump version: edit `package.json` to `"version": "2.15.0"`
+4. Commit: `git commit -am "chore: bump to v2.15.0"`
 
 ## Implementation Plan
 
-Read `PLAN-v2.12.0.md` for full specification. Here are the ordered steps:
+Read `PLAN-v2.15.0.md` for full specification. Here are the ordered steps:
 
-### Step 1: Existing-Repo Detection in `describe` (parallel-safe)
-**Files:** `src/commands/describe.ts`
+### Step 1: Cache packed source during analysis (parallel-safe)
+**Files:** `src/analyzer/analyze.ts`, `src/analyzer/cache.ts`
 
-1. After config check (line ~30), before intent input:
-   - List files in `process.cwd()` using `fs.readdir()`
-   - Check for existence of: `package.json`, `pyproject.toml`, `requirements.txt`, `Cargo.toml`, `go.mod`, `Gemfile`, `Dockerfile`, `docker-compose.yml`
-   - Check for directories: `src/`, `lib/`, `app/`, `api/`
-   - Count non-hidden files
-   - If any config file found AND >5 non-hidden files → existing repo
-2. If detected, print message and offer confirm prompt:
+1. After `packCodebase()`, write `packed.content` to `.kairn/packed-source.txt`
+2. Update `readCache()` to return packed source path if available
+3. Update `writeCache()` to save packed source alongside analysis
+4. When cache valid AND packed source exists, skip Repomix
+
+**Tests:** `src/analyzer/__tests__/cache.test.ts`
+**Commit:** `feat(analyzer): cache packed source code alongside analysis`
+
+### Step 2: Return packed source from analyzeProject() (depends on Step 1)
+**Files:** `src/analyzer/analyze.ts`, `src/analyzer/types.ts`
+
+1. Change `analyzeProject()` return type to include `packedSource: string`
+2. Return both analysis and packed source content
+3. Update `kairn analyze` command to show packed source stats
+
+**Tests:** `src/analyzer/__tests__/analyze.test.ts`
+**Commit:** `feat(analyzer): return packed source alongside ProjectAnalysis`
+
+### Step 3: Enrich compilation intent with packed source (depends on Step 2)
+**Files:** `src/commands/optimize.ts`
+
+1. `buildOptimizeIntent()` gains `packedSource?: string` parameter
+2. Append `## Sampled Source Code` section to intent when provided
+3. `optimizeCommand` handler passes `packedSource` from analyzer result
+4. Compilation agents now receive ~62K tokens (vs ~2K today)
+
+**Tests:** `src/analyzer/__tests__/integration.test.ts`
+**Commit:** `feat(optimize): pass packed source code through to compilation agents`
+
+### Step 4: Persist IR after compilation (parallel-safe)
+**Files:** `src/commands/optimize.ts`, `src/commands/describe.ts`
+
+1. After `compile()` returns IR, write to `.kairn/harness-ir.json`
+2. Create `.kairn/` directory if needed
+3. `JSON.stringify(ir, null, 2)` for human readability
+
+**Tests:** Verify file exists after compile
+**Commit:** `feat(compile): persist HarnessIR to .kairn/harness-ir.json`
+
+### Step 5: Persist IR after evolve mutations (depends on Step 4)
+**Files:** `src/evolve/mutator.ts`
+
+1. In `applyMutationsViaIR()`, write `currentIR` to `iterations/N/harness-ir.json`
+2. One additional `fs.writeFile` call — no logic changes
+3. Legacy fallback path does not persist IR (acceptable — it's the fallback)
+
+**Tests:** `src/evolve/__tests__/mutator.test.ts`
+**Commit:** `feat(evolve): persist HarnessIR after mutation application`
+
+### Step 6: Build IR summary helper (parallel-safe after Step 4)
+**Files:** `src/evolve/proposer.ts`
+
+1. Create `buildIRSummary(ir: HarnessIR): string` function
+2. Output: compact structural overview (~200-500 tokens):
    ```
-   This looks like an existing project with source code.
-   For the best results, use: kairn optimize
-   ? Run kairn optimize instead? [Y/n]
+   Sections (6): purpose, tech-stack, architecture, commands, conventions, verification
+   Commands (4): build (Bash(npm*)), test, develop, sprint
+   Rules (2): security (**/*), docker-practices (Dockerfile*)
+   Agents (3): architect, implementer, reviewer
+   MCP Servers (2): context7, sequential-thinking
    ```
-3. If confirmed: import `optimizeCommand` from `./optimize.js` and call `optimizeCommand.parseAsync([])`
-4. If declined: continue with describe normally
+3. Export for use by proposer and architect
 
-**Tests:** `src/commands/__tests__/describe-hooks.test.ts` — test detection heuristic with mock file systems  
-**Commit:** `feat(describe): detect existing repos and redirect to optimize`
+**Tests:** Unit test with mock IR → verify output format
+**Commit:** `feat(evolve): IR summary builder for proposer context`
 
-### Step 2: Remove Intent Routing Infrastructure (parallel-safe)
-**Files:** `src/compiler/compile.ts`, `src/adapter/claude-code.ts`
+### Step 7: Inject context into reactive proposer (depends on Steps 5, 6)
+**Files:** `src/evolve/proposer.ts`, `src/evolve/loop.ts`
 
-1. In `compile.ts`:
-   - Remove imports: `generateIntentPatterns`, `compileIntentPrompt`, `renderIntentRouter`, `renderIntentLearner`
-   - Remove the intent routing block (lines ~242-262): `generateIntentPatterns()`, `compileIntentPrompt()`, `renderIntentRouter()`, `renderIntentLearner()`
-   - Remove `intentHooks` from spec assembly
-   - Remove `intent_patterns` and `intent_prompt_template` from harness
-   - In `buildSettings()`: remove the `UserPromptSubmit` hooks array entirely
-   - In `buildSettings()`: remove the `SessionStart` hook for `intent-learner.mjs`
+1. Add `projectContext` parameter to `buildProposerUserMessage()`:
+   - `analysis: ProjectAnalysis` (~1K tokens)
+   - `irSummary: string` (~300 tokens)
+   - `keySourceFiles?: string` (~10K tokens — Tier 0+1 files from packed source)
+2. Insert after harness files, before traces (fixed section, never truncated)
+3. In `loop.ts` `evolve()` function:
+   - At loop start, load `.kairn/analysis.json` if exists
+   - Load `.kairn/packed-source.txt`, extract key files (first 10K chars)
+   - On each iteration, read `harness-ir.json` and build summary
+   - Pass `projectContext` to `propose()`
 
-2. In `claude-code.ts` (or whichever adapter writes hooks to disk):
-   - Stop writing `intent-router.mjs` and `intent-learner.mjs` to `.claude/hooks/`
-   - Stop writing `intent-log.jsonl` and `intent-promotions.jsonl`
+**Tests:** Verify proposer user message includes `## Project Understanding` section
+**Commit:** `feat(evolve): inject project context into reactive proposer`
 
-3. Do NOT delete `src/intent/` yet — just disconnect it. We'll clean up in a later step.
+### Step 8: Inject context into architect proposer (depends on Step 7)
+**Files:** `src/evolve/architect.ts`
 
-**Tests:** Update `src/commands/__tests__/describe-hooks.test.ts` — verify no intent hooks in output  
-**Commit:** `refactor(compile): remove intent routing from generation pipeline`
+1. Add same `projectContext` parameter to `buildArchitectUserMessage()`
+2. Insert at same position (fixed section, before traces)
+3. In `loop.ts`, pass same `projectContext` to `proposeArchitecture()`
 
-### Step 3: Add "Available Commands" Section to CLAUDE.md
-**Files:** `src/ir/renderer.ts`
+**Tests:** Verify architect user message includes project context
+**Commit:** `feat(evolve): inject project context into architect proposer`
 
-1. In `renderClaudeMd()`, after rendering all sections:
-   - If IR has commands, generate an "## Available Commands" section
-   - List each command with its name and first-line description:
-     ```markdown
-     ## Available Commands
-     When the user explicitly asks to run a workflow, use the appropriate command:
-     - `/project:build` — Build the Docker image
-     - `/project:test` — Run the full test suite
-     ...
-     Only route when the user's clear intent is to execute a workflow.
-     Never route questions, discussions, or code reviews.
-     ```
-   - Extract description from first non-heading line of each command's content
+### Step 9: New SWE-bench-style eval templates (parallel-safe)
+**Files:** `src/evolve/templates.ts`
 
-2. This section is generated deterministically from IR — no LLM needed.
+1. Add `real-bug-fix` template:
+   - Injects known bug → task agent with fixing from issue description
+   - Scorer: test suite passes OR specific file content verified
+2. Add `real-feature-add` template:
+   - Small feature with clear acceptance criteria
+   - Scorer: feature exists + tests pass + no regressions
+3. Add `codebase-question` template:
+   - Factual question about codebase requiring source reading
+   - Scorer: LLM-as-judge checks accuracy
+4. Tag all templates with `category: 'harness-sensitivity' | 'substantive'`
 
-**Tests:** `src/ir/__tests__/renderer.test.ts` — verify "Available Commands" section appears with correct commands  
-**Commit:** `feat(renderer): add Available Commands section to CLAUDE.md`
+**Tests:** `src/evolve/__tests__/templates.test.ts`
+**Commit:** `feat(evolve): SWE-bench-style eval templates`
 
-### Step 4: Tech-Stack-Aware Permissions
-**Files:** `src/compiler/compile.ts`
+### Step 10: Analysis-aware task generation (depends on Steps 2, 9)
+**Files:** `src/evolve/init.ts`
 
-1. Refactor `buildSettings()`:
-   - Replace hardcoded `allow` list with dynamic derivation
-   - Always include: `"Read"`, `"Write"`, `"Edit"`
-   - Check `skeleton.outline.tech_stack` for each language/tool:
-     - Python detected → add `Bash(python *)`, `Bash(pip *)`, `Bash(pytest *)`, `Bash(uv *)`
-     - TypeScript/JavaScript/Node → add `Bash(npm run *)`, `Bash(npx *)`
-     - Rust → add `Bash(cargo *)`
-     - Go → add `Bash(go *)`
-     - Ruby → add `Bash(bundle *)`, `Bash(rake *)`
-     - Docker → add `Bash(docker *)`, `Bash(docker compose *)`
-   - If no language matched, include a conservative default set
+1. `kairn evolve init` reads `.kairn/analysis.json` when available
+2. Generates domain-specific tasks using ProjectAnalysis:
+   - `real-bug-fix` referencing actual modules
+   - `codebase-question` about actual workflows
+   - `real-feature-add` extending actual functionality
+3. Mix: 50% harness-sensitivity, 50% substantive
+4. Fallback to existing menu if no analysis
 
-2. Update PostToolUse formatter hook:
-   - Existing: adds prettier hook when TS/JS detected (keep this)
-   - New: add ruff/black hook when Python detected:
-     ```json
-     {
-       "matcher": "Edit|Write",
-       "hooks": [{
-         "type": "command",
-         "command": "FILE=$(cat | jq -r '.tool_input.file_path // empty') && [ -n \"$FILE\" ] && [[ \"$FILE\" == *.py ]] && ruff format \"$FILE\" 2>/dev/null || true"
-       }]
-     }
-     ```
+**Tests:** `src/evolve/__tests__/init.test.ts`
+**Commit:** `feat(evolve): analysis-aware task generation with mixed eval suite`
 
-**Tests:** `src/compiler/__tests__/compile.test.ts` — test permissions for Python, Node, Go, Docker, mixed projects  
-**Commit:** `feat(compile): tech-stack-aware permissions and formatter hooks`
+### Step 11: Score breakdown in reports (depends on Step 9)
+**Files:** `src/evolve/report.ts`, `src/evolve/types.ts`
 
-### Step 5: Honest .env Handling
-**Files:** `src/compiler/compile.ts`
+1. Add `category` field to `Task` type
+2. `kairn evolve report` shows split aggregates:
+   ```
+   Overall:            72.5%
+   Harness adherence:  85.0% (6 tasks)
+   Substantive tasks:  60.0% (6 tasks)
+   ```
+3. `kairn evolve report --json` includes both categories
 
-1. In `buildSettings()`:
-   - Remove the SessionStart hook that injects .env into CLAUDE_ENV_FILE
-   - Keep the SessionStart welcome hook (the `.toured` check)
-   - Make `Read(./.env)` deny conditional:
-     - If `skeleton.tools.some(t => t.auth === 'env-key')` or skeleton indicates env vars → do NOT deny `.env`
-     - Otherwise → keep `Read(./.env)` in deny list
+**Tests:** `src/evolve/__tests__/report.test.ts`
+**Commit:** `feat(evolve): score breakdown by task category`
 
-2. In `renderClaudeMd()` (via renderer.ts):
-   - If project uses env vars, add a section:
-     ```markdown
-     ## Environment Variables
-     This project uses environment variables. Expected:
-     - `DATABASE_URL` — Database connection string
-     - `API_KEY` — External service API key
-     Set these in your shell before starting Claude.
-     ```
-   - Populated from skeleton's tool requirements and .env.example keys (from scanner)
-
-**Tests:** Verify .env injection hook absent, deny rule conditional  
-**Commit:** `fix(compile): remove .env injection, make deny rule honest`
-
-### Step 6: Living Docs
-**Files:** `src/adapter/claude-code.ts`, `src/compiler/compile.ts`, `src/compiler/agents/doc-writer.ts`
-
-1. In `claude-code.ts` → `writeEnvironment()`:
-   - Before writing each doc file, check if content matches placeholder pattern:
-     - Contains `(Add decisions here as they are made)` or `(Add learnings here as they are discovered)`
-     - Or total non-header content < 50 characters
-   - If placeholder: skip writing this file
-
-2. In `buildSettings()` → PostToolUse hooks:
-   - Add a prompt hook for doc updates:
-     ```json
-     {
-       "matcher": "Write|Edit",
-       "hooks": [{
-         "type": "prompt",
-         "prompt": "If this change involves an architectural decision, debugging insight, or task completion, consider updating .claude/docs/. Only update if genuinely useful — don't add noise."
-       }]
-     }
-     ```
-
-3. In `doc-writer.ts`:
-   - Update system prompt to include: "If you cannot produce meaningful content for a document (only template placeholders), return an empty content field. Empty is better than filler."
-
-**Tests:** Verify placeholder docs filtered, prompt hook present  
-**Commit:** `feat(compile): living docs with update hooks, filter empty scaffolds`
-
-### Step 7: Compilation UX
-**Files:** `src/ui.ts`, `src/compiler/batch.ts`
-
-1. In `createProgressRenderer()`:
-   - Add spinner frames: `const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];`
-   - Replace `◐` with animated frame cycling (increment index in `updateElapsed`)
-   - Add cumulative timer line at top of render output: `Total elapsed: 45s`
-   - Show estimated time remaining: `~30s remaining` (from `estimateTime()` - elapsed)
-
-2. In `batch.ts` → `executePlan()`:
-   - Emit richer progress events including agent names:
-     ```
-     Pass 3 (phase-a): Writing sections, rules, docs... [5s]
-     ```
-   - Include item names from plan in progress message
-
-**Tests:** Snapshot tests for progress output format  
-**Commit:** `feat(ui): animated spinner, cumulative timer, richer progress`
-
-### Step 8: Delete Intent Infrastructure
-**Files:** `src/intent/` (entire directory)
-
-1. Delete:
-   - `src/intent/patterns.ts`
-   - `src/intent/prompt-template.ts`
-   - `src/intent/router-template.ts`
-   - `src/intent/learner-template.ts`
-   - `src/intent/types.ts`
-   - `src/intent/__tests__/` (all test files)
-
-2. Remove any remaining imports of intent modules elsewhere in codebase
-
-3. Update `src/types.ts` if `EnvironmentSpec` still references intent fields:
-   - Remove `intent_patterns` and `intent_prompt_template` from harness type
-   - Or mark as optional with `?`
-
-**Tests:** `npm run build` succeeds, `npx vitest run` passes (intent tests gone, no broken imports)  
-**Commit:** `refactor: remove intent routing infrastructure (replaced by CLAUDE.md instructions)`
-
-### Step 9: Integration & Regression
-**Files:** Various
-
-1. Full regression: `npx vitest run` — all existing tests must pass
-2. Build: `npm run build` — clean build
-3. CLI smoke test: `node dist/cli.js describe --help`
-4. CLI smoke test: `node dist/cli.js optimize --help`
-5. If possible: manual test `kairn describe` in empty dir → should work normally
-6. If possible: manual test `kairn describe` in ~/Projects/inferix → should redirect to optimize
-
-**Commit:** `test: integration and regression tests for v2.12.0`
-
-### Step 10: Finalize
+### Step 12: Finalize
 1. `npm run build` — must succeed
 2. `npx vitest run` — all tests pass
-3. Update CHANGELOG.md with v2.12.0 entry
-4. `node dist/cli.js --help` — verify commands
-5. `git log --oneline -15` — verify commit history
+3. Update CHANGELOG.md with v2.15.0 entry
+4. Update ROADMAP.md checkboxes
+5. `node dist/cli.js --help` — verify commands
+6. `git log --oneline -15` — verify commit history
 
-**Commit:** `chore: bump to v2.12.0, update CHANGELOG`
+**Commit:** `chore: v2.15.0 finalization`
+
+## Dependency Graph
+
+```
+Step 1 (cache packed)  ─────────┐
+Step 4 (persist IR compile) ──┐ │
+Step 6 (IR summary helper) ──┤ │
+Step 9 (eval templates)  ───┐ │ │
+                            │ │ │
+Step 2 (return packed) ─────┤─┘─┘ (depends on 1)
+Step 5 (persist IR evolve)──┤     (depends on 4)
+                            │
+Step 3 (enrich intent) ─────┤     (depends on 2)
+Step 7 (proposer context) ──┤     (depends on 5, 6)
+Step 10 (task generation) ──┤     (depends on 2, 9)
+Step 11 (score breakdown) ──┤     (depends on 9)
+                            │
+Step 8 (architect context) ─┤     (depends on 7)
+                            │
+Step 12 (finalize) ─────────┘     (depends on all)
+```
+
+Parallelizable groups:
+- **Group A:** Steps 1, 4, 6, 9 (all parallel-safe)
+- **Group B:** Steps 2, 5 (after their deps from A)
+- **Group C:** Steps 3, 7, 10, 11 (after B)
+- **Group D:** Step 8 (after 7)
+- **Group E:** Step 12 (after all)
 
 ## Key Constraints
 
 - **TDD mandatory:** RED → GREEN → REFACTOR for every step
 - **Strict TypeScript:** no `any`, no `ts-ignore`, `.js` extensions on imports
 - **Max 3 fix rounds** in review phase
-- **Preserve all existing tests** that aren't intent-related — none may break
-- **Backward compatible:** existing environments continue to work
+- **Backward compatible:** `kairn describe` in empty dir → unchanged behavior
+- **Budget-safe:** All new context fits within existing token limits
+- **Preserve all existing tests** — none may break
+- **Proposer output unchanged:** Still emits file-level mutations. No changes to translation layer.
 
 ## Success Criteria
 
-1. `kairn describe` in existing repo → detects and offers optimize redirect
-2. `kairn describe` in empty dir → works as before
-3. Generated settings.json has NO intent-router/intent-learner hooks
-4. Generated settings.json has correct permissions for detected tech stack
-5. Generated CLAUDE.md has "Available Commands" section listing all commands
-6. No .env injection hook in generated settings.json
-7. Empty template-only docs are NOT written to disk
-8. Compilation shows animated spinner with cumulative timer
-9. All existing tests pass (with intent tests removed)
-10. `npm run build` clean
+1. `kairn optimize` on a real Python project → CLAUDE.md references actual functions, modules, and workflows
+2. `kairn evolve` proposer reasoning mentions specific project patterns (not just trace symptoms)
+3. `.kairn/packed-source.txt` cached and reused on subsequent runs
+4. `.kairn/harness-ir.json` exists after compilation
+5. `iterations/N/harness-ir.json` exists after every evolve mutation
+6. `kairn evolve init` generates mixed eval suite with domain-specific tasks
+7. `kairn evolve report` shows harness-adherence vs. substantive-task scores separately
+8. All existing tests pass + all new tests pass
+9. `npm run build` clean

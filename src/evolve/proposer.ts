@@ -4,6 +4,21 @@ import { callLLM } from '../llm.js';
 import { loadIterationTraces } from './trace.js';
 import type { Task, Trace, Proposal, Mutation, IterationLog } from './types.js';
 import type { KairnConfig } from '../types.js';
+import type { HarnessIR, SettingsIR } from '../ir/types.js';
+import type { ProjectAnalysis } from '../analyzer/types.js';
+
+/**
+ * Context about the project being optimized, injected into the proposer
+ * prompt to give it visibility into the project's structure and source code.
+ */
+export interface ProjectContext {
+  /** Structured analysis of the project's architecture, modules, and workflows. */
+  analysis: ProjectAnalysis;
+  /** Compact structural overview of the current HarnessIR. */
+  irSummary: string;
+  /** Truncated key source files from packed source (Tier 0 + Tier 1). */
+  keySourceFiles?: string;
+}
 
 export const PROPOSER_SYSTEM_PROMPT = `You are an expert agent environment optimizer. Your job is to improve a Claude Code
 agent environment (.claude/ directory) based on execution traces from real tasks.
@@ -71,6 +86,149 @@ the agent lacks a tool it needs, or has tools that add noise without benefit.
 
 Return ONLY valid JSON.`;
 
+/**
+ * Count the total number of settings-level hooks across all hook categories.
+ *
+ * Iterates over all hook categories (PreToolUse, PostToolUse, etc.) and sums
+ * the number of individual hook entries within each category.
+ */
+function countSettingsHooks(settings: SettingsIR): number {
+  let count = 0;
+  const categories = settings.hooks;
+  for (const key of Object.keys(categories) as Array<keyof typeof categories>) {
+    const entries = categories[key];
+    if (entries) {
+      count += entries.length;
+    }
+  }
+  return count;
+}
+
+/**
+ * Build a compact structural overview of a HarnessIR for proposer context.
+ *
+ * Produces a ~200-500 token summary listing counts and names of all IR
+ * components: sections, commands, rules, agents, MCP servers, skills, docs,
+ * hooks, and settings. This gives the proposer a structural map of the
+ * harness without including full content.
+ *
+ * @param ir - The HarnessIR to summarize
+ * @returns A markdown-formatted string suitable for injection into a prompt
+ */
+export function buildIRSummary(ir: HarnessIR): string {
+  const lines: string[] = [];
+
+  // Header
+  lines.push('## Harness Structure (IR)');
+
+  // Meta
+  const meta = ir.meta;
+  const techParts: string[] = [meta.techStack.language];
+  if (meta.techStack.framework) techParts.push(meta.techStack.framework);
+  if (meta.techStack.buildTool) techParts.push(meta.techStack.buildTool);
+  lines.push(`Project: ${meta.name || '(unnamed)'} — ${techParts.join(', ')}`);
+
+  // Sections
+  const sectionIds = ir.sections.map((s) => s.id);
+  lines.push(`Sections (${ir.sections.length}): ${sectionIds.join(', ') || 'none'}`);
+
+  // Commands — include description hint
+  const commandSummaries = ir.commands.map((c) => c.name);
+  lines.push(`Commands (${ir.commands.length}): ${commandSummaries.join(', ') || 'none'}`);
+
+  // Rules — include glob patterns
+  const ruleSummaries = ir.rules.map((r) => {
+    const pathHint = r.paths && r.paths.length > 0 ? ` (${r.paths.join(', ')})` : '';
+    return `${r.name}${pathHint}`;
+  });
+  lines.push(`Rules (${ir.rules.length}): ${ruleSummaries.join(', ') || 'none'}`);
+
+  // Agents
+  const agentNames = ir.agents.map((a) => a.name);
+  lines.push(`Agents (${ir.agents.length}): ${agentNames.join(', ') || 'none'}`);
+
+  // MCP Servers
+  const serverNames = ir.mcpServers.map((s) => s.id);
+  lines.push(`MCP Servers (${ir.mcpServers.length}): ${serverNames.join(', ') || 'none'}`);
+
+  // Optional categories — only show when non-empty
+  if (ir.skills.length > 0) {
+    const skillNames = ir.skills.map((s) => s.name);
+    lines.push(`Skills (${ir.skills.length}): ${skillNames.join(', ')}`);
+  }
+
+  if (ir.docs.length > 0) {
+    const docNames = ir.docs.map((d) => d.name);
+    lines.push(`Docs (${ir.docs.length}): ${docNames.join(', ')}`);
+  }
+
+  if (ir.hooks.length > 0) {
+    const hookNames = ir.hooks.map((h) => h.name);
+    lines.push(`Hooks (${ir.hooks.length}): ${hookNames.join(', ')}`);
+  }
+
+  // Settings summary
+  const settingsParts: string[] = [];
+  if (ir.settings.statusLine) {
+    settingsParts.push('statusLine=enabled');
+  }
+  if (ir.settings.denyPatterns && ir.settings.denyPatterns.length > 0) {
+    settingsParts.push(`denyPatterns=${ir.settings.denyPatterns.length}`);
+  }
+  const hooksCount = countSettingsHooks(ir.settings);
+  if (hooksCount > 0) {
+    settingsParts.push(`hooks=${hooksCount}`);
+  }
+  lines.push(`Settings: ${settingsParts.join(', ') || 'default'}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Format a ProjectAnalysis into a compact string suitable for proposer context.
+ *
+ * Produces a ~200-800 token summary covering the project's purpose, domain,
+ * architecture style, deployment model, key modules, workflows, and config keys.
+ * Intentionally kept under ~1500 characters to leave room in the context budget.
+ *
+ * @param analysis - The ProjectAnalysis to format
+ * @returns A compact markdown-formatted string
+ */
+export function formatAnalysisForProposer(analysis: ProjectAnalysis): string {
+  const lines: string[] = [];
+
+  lines.push(`Purpose: ${analysis.purpose}`);
+  lines.push(`Domain: ${analysis.domain}`);
+  lines.push(`Architecture: ${analysis.architecture_style}`);
+  lines.push(`Deployment: ${analysis.deployment_model}`);
+
+  if (analysis.key_modules.length > 0) {
+    lines.push('');
+    lines.push('Key Modules:');
+    for (const mod of analysis.key_modules) {
+      lines.push(`- ${mod.name} (${mod.path}): ${mod.description}`);
+    }
+  }
+
+  if (analysis.workflows.length > 0) {
+    lines.push('');
+    lines.push('Workflows:');
+    for (const wf of analysis.workflows) {
+      lines.push(`- ${wf.name}: ${wf.description} (trigger: ${wf.trigger})`);
+    }
+  }
+
+  if (analysis.config_keys.length > 0) {
+    lines.push('');
+    lines.push('Config Keys:');
+    for (const key of analysis.config_keys) {
+      lines.push(`- ${key.name}: ${key.purpose}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 /** Maximum characters of stdout to include per trace in the prompt. */
 const STDOUT_TRUNCATION_LIMIT = 1000;
 
@@ -128,7 +286,19 @@ function truncateStdout(stdout: string, limit: number): string {
  * Build the user-facing prompt for the proposer LLM call.
  *
  * Assembles current harness file contents, trace summaries (with truncated
- * stdout), task definitions, and iteration history into a single string.
+ * stdout), task definitions, iteration history, and optionally project
+ * context (analysis, IR summary, key source files) into a single string.
+ *
+ * When projectContext is provided, a "## Project Understanding" section is
+ * inserted after harness files / task definitions and before execution traces,
+ * giving the proposer visibility into the project being optimized.
+ *
+ * @param harnessFiles - Current harness file contents (path -> content)
+ * @param traces - Execution traces from the current iteration
+ * @param tasks - Task definitions (descriptions only, no rubrics)
+ * @param history - Logs from previous iterations
+ * @param memorySection - Optional memory + knowledge base text
+ * @param projectContext - Optional project analysis, IR summary, and key source files
  */
 export function buildProposerUserMessage(
   harnessFiles: Record<string, string>,
@@ -136,6 +306,7 @@ export function buildProposerUserMessage(
   tasks: Task[],
   history: IterationLog[],
   memorySection?: string,
+  projectContext?: ProjectContext,
 ): string {
   // Priority-based context assembly: harness + tasks are never truncated,
   // traces and history are progressively reduced to fit within budget.
@@ -166,7 +337,28 @@ export function buildProposerUserMessage(
     }
   }
 
-  const fixedContent = harnessSection.join('\n') + '\n' + taskSection.join('\n');
+  // Section 2b: Project Understanding (when project context is available)
+  // Inserted after harness files + tasks but before traces, giving the proposer
+  // visibility into the project being optimized.
+  let projectSection = '';
+  if (projectContext) {
+    const parts: string[] = ['## Project Understanding\n'];
+    parts.push('### Analysis Summary');
+    parts.push(formatAnalysisForProposer(projectContext.analysis));
+    parts.push('');
+    parts.push('### Harness Structure');
+    parts.push(projectContext.irSummary);
+    if (projectContext.keySourceFiles) {
+      parts.push('');
+      parts.push('### Key Source Files');
+      parts.push('```');
+      parts.push(projectContext.keySourceFiles);
+      parts.push('```');
+    }
+    projectSection = '\n' + parts.join('\n') + '\n';
+  }
+
+  const fixedContent = harnessSection.join('\n') + '\n' + taskSection.join('\n') + projectSection;
   const remainingBudget = MAX_CONTEXT_CHARS - fixedContent.length;
 
   if (remainingBudget <= 0) {
@@ -399,6 +591,7 @@ export function parseProposerResponse(raw: string): Proposal {
  * @param tasks - Task definitions being evaluated
  * @param config - Kairn configuration (for LLM access)
  * @param proposerModel - Model ID to use for the proposer call
+ * @param projectContext - Optional project context (analysis, IR summary, key source files)
  * @returns A validated Proposal with reasoning, mutations, and expected impact
  */
 export async function propose(
@@ -409,6 +602,7 @@ export async function propose(
   tasks: Task[],
   config: KairnConfig,
   proposerModel: string,
+  projectContext?: ProjectContext,
 ): Promise<Proposal> {
   const harnessFiles = await readHarnessFiles(harnessPath);
   const traces = await loadIterationTraces(workspacePath, iteration);
@@ -427,7 +621,7 @@ export async function propose(
   }
 
   const combinedMemory = memorySection + (knowledgeSection ? '\n' + knowledgeSection : '');
-  const userMessage = buildProposerUserMessage(harnessFiles, traces, tasks, history, combinedMemory || undefined);
+  const userMessage = buildProposerUserMessage(harnessFiles, traces, tasks, history, combinedMemory || undefined, projectContext);
 
   // Override model with proposer-specific model
   const proposerConfig: KairnConfig = { ...config, model: proposerModel };

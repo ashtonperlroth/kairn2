@@ -7,6 +7,49 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.15.0] — 2026-04-03
+
+### Added
+- **Packed source caching** (`src/analyzer/cache.ts`) — Repomix output (~60K tokens) persisted to `.kairn-packed-source.txt` alongside analysis cache; subsequent runs skip Repomix entirely when cache is valid
+- **Enriched compilation pipeline** — `buildOptimizeIntent()` now includes full packed source code as evidence section; compilation agents receive ~62K tokens of context (up from ~2K)
+- **HarnessIR persistence** (`src/compiler/persist.ts`) — IR written to `.kairn/harness-ir.json` after compilation and to `iterations/{N}/harness-ir.json` after every evolve mutation
+- **IR summary builder** (`src/evolve/proposer.ts`) — `buildIRSummary()` produces compact structural overview of harness sections, commands, rules, agents, MCP servers, and settings
+- **Project context for evolve proposers** — reactive proposer and architect now receive ProjectAnalysis (~1K tokens), IR summary (~300 tokens), and key source files (~10K tokens) for project-aware optimization
+- **SWE-bench-style eval templates** (`src/evolve/templates.ts`) — three new substantive templates: `real-bug-fix`, `real-feature-add`, `codebase-question` with category tags
+- **Analysis-aware task generation** (`src/evolve/init.ts`) — `kairn evolve init` reads cached ProjectAnalysis to generate domain-specific eval tasks referencing actual modules and workflows
+- **Score breakdown in reports** (`src/evolve/report.ts`) — `kairn evolve report` shows separate harness-adherence vs. substantive-task scores when both categories are present
+- **`kairn analyze --ir`** — displays the current harness IR structure summary
+- 121 new tests (1577 total, up from 1456)
+
+### Changed
+- `analyzeProject()` now returns `AnalysisResult` (`{ analysis, packedSource }`) instead of bare `ProjectAnalysis`
+- All existing eval templates tagged with `category: 'harness-sensitivity'`; new templates tagged `'substantive'`
+- Task generation prompt enforces 50/50 balance between harness-sensitivity and substantive tasks
+
+---
+
+## [2.14.0] — 2026-04-03
+
+### Added
+- **Semantic codebase analyzer** (`src/analyzer/`) — new analysis stage between `scanProject()` and `compile()` that reads actual source code to understand what a project does, not just its bill of materials
+- **Repomix integration** (`src/analyzer/repomix-adapter.ts`) — wraps Repomix as a library for intelligent file packing with .gitignore awareness, security scanning, and a 5000-token budget
+- **Language-specific sampling strategies** (`src/analyzer/patterns.ts`) — heuristic file selection for Python, TypeScript, Go, and Rust with entry points, domain patterns, config patterns, and exclude patterns
+- **`ProjectAnalysis` schema** (`src/analyzer/types.ts`) — structured JSON output: purpose, domain, key_modules, workflows, architecture_style, deployment_model, dataflow edges, config_keys
+- **`AnalysisError` class** — typed error categories (`no_entry_point`, `empty_sample`, `llm_parse_failure`, `repomix_failure`) with fail-hard policy (no fallback to generic output)
+- **Analysis caching** (`src/analyzer/cache.ts`) — persists `ProjectAnalysis` to `.kairn-analysis.json` with content-hash invalidation (SHA-256 of sampled file contents) and kairn version check
+- **`kairn analyze` command** (`src/commands/analyze.ts`) — standalone analysis with formatted output, `--refresh` to bypass cache, `--json` for piped output
+- **Enriched optimize pipeline** — `buildOptimizeIntent()` now includes semantic analysis sections (purpose, domain, modules, workflows, dataflow, config) so all compilation agents receive domain-specific context
+- 120 new tests (1456 total, up from 1336)
+
+### Changed
+- `kairn optimize` now runs `analyzeProject()` after `scanProject()` — fails hard on `AnalysisError` instead of proceeding with generic metadata
+- `buildOptimizeIntent()` signature extended to accept optional `ProjectAnalysis`
+
+### Dependencies
+- Added `repomix` ^1.13.1
+
+---
+
 ## [2.13.0] — 2026-04-03
 
 ### Added
