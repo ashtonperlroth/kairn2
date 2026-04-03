@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { evaluateAll } from './runner.js';
-import { propose } from './proposer.js';
+import { propose, buildIRSummary } from './proposer.js';
 import { applyMutations } from './mutator.js';
 import { writeIterationLog } from './trace.js';
 import { copyDir } from './baseline.js';
@@ -12,8 +12,11 @@ import { measureComplexity, measureComplexityFromIR, computeComplexityCost, appl
 import { parseHarness } from '../ir/parser.js';
 import { translateMutations } from '../ir/translate.js';
 import { filterTasksByAspects, mutationsToAspects } from './targeting.js';
+import { PACKED_SOURCE_FILENAME } from '../analyzer/cache.js';
 import type { HarnessAspect } from './targeting.js';
 import type { HarnessIR } from '../ir/types.js';
+import type { ProjectContext } from './proposer.js';
+import type { ProjectAnalysis } from '../analyzer/types.js';
 import type { TaskBelief } from './sampling.js';
 import type { ComplexityMetrics } from './regularization.js';
 import type { KairnConfig } from '../types.js';
@@ -25,6 +28,79 @@ import type {
   EvolveResult,
   LoopProgressEvent,
 } from './types.js';
+
+/** Maximum characters of packed source to include as key source files. */
+const KEY_SOURCE_CHARS_LIMIT = 10_000;
+
+/**
+ * Load project context (analysis + packed source) from the project root.
+ *
+ * Reads `.kairn-analysis.json` and `.kairn-packed-source.txt` from the project
+ * directory (parent of the .kairn-evolve workspace). Returns null if files are
+ * not available (backward compatible with projects that haven't run analyze yet).
+ */
+async function loadProjectContext(
+  projectDir: string,
+): Promise<{ analysis: ProjectAnalysis; keySourceFiles: string } | null> {
+  try {
+    const analysisPath = path.join(projectDir, '.kairn-analysis.json');
+    const analysisRaw = await fs.readFile(analysisPath, 'utf-8');
+    const analysisCache = JSON.parse(analysisRaw) as { analysis: ProjectAnalysis };
+    const analysis = analysisCache.analysis;
+
+    // Load packed source for key source files
+    let keySourceFiles = '';
+    try {
+      const packedPath = path.join(projectDir, PACKED_SOURCE_FILENAME);
+      const packedSource = await fs.readFile(packedPath, 'utf-8');
+      // Take the first ~10K characters (Tier 0 + Tier 1 files)
+      keySourceFiles = packedSource.slice(0, KEY_SOURCE_CHARS_LIMIT);
+    } catch {
+      // Packed source not available — continue without it
+    }
+
+    return { analysis, keySourceFiles };
+  } catch {
+    // Analysis cache not available — project context is optional
+    return null;
+  }
+}
+
+/**
+ * Build a ProjectContext for the proposer from loaded project data and the
+ * current iteration's harness IR.
+ *
+ * @param projectData - Analysis and key source files loaded from disk
+ * @param harnessPath - Path to the current harness directory
+ * @returns A complete ProjectContext, or undefined if IR parsing fails gracefully
+ */
+async function buildProjectContext(
+  projectData: { analysis: ProjectAnalysis; keySourceFiles: string },
+  harnessPath: string,
+): Promise<ProjectContext> {
+  let irSummary = '';
+  try {
+    // Try to read persisted IR from the iteration directory first
+    const irPath = path.join(harnessPath, '..', 'harness-ir.json');
+    const irRaw = await fs.readFile(irPath, 'utf-8');
+    const ir = JSON.parse(irRaw) as HarnessIR;
+    irSummary = buildIRSummary(ir);
+  } catch {
+    // IR not persisted yet — try parsing from harness files directly
+    try {
+      const ir = await parseHarness(harnessPath);
+      irSummary = buildIRSummary(ir);
+    } catch {
+      irSummary = '(IR not available)';
+    }
+  }
+
+  return {
+    analysis: projectData.analysis,
+    irSummary,
+    keySourceFiles: projectData.keySourceFiles || undefined,
+  };
+}
 
 /**
  * Compute dynamic mutation cap based on iteration progress.
@@ -98,6 +174,11 @@ export async function evolve(
 
   // Targeted re-evaluation: track which harness aspects changed last iteration
   let lastChangedAspects: Set<HarnessAspect> | null = null;
+
+  // Project context: load analysis + packed source once at loop start
+  // The workspace is typically at <project>/.kairn-evolve, so parent is project root
+  const projectDir = path.resolve(workspacePath, '..');
+  const projectData = await loadProjectContext(projectDir);
 
   // Seeded RNG for Thompson Sampling (deterministic per-run, per-branch via rngSeed)
   let rngState = evolveConfig.rngSeed ?? 42;
@@ -342,6 +423,10 @@ export async function evolve(
       if (iter + 1 < evolveConfig.maxIterations) {
         onProgress?.({ type: 'proposing', iteration: iter, message: 'Proposing new mutations after rollback' });
         try {
+          // Build project context for rollback proposal
+          const rollbackProjectCtx = projectData
+            ? await buildProjectContext(projectData, bestHarnessPath)
+            : undefined;
           let rollbackProposal = await propose(
             iter,
             workspacePath,
@@ -350,6 +435,7 @@ export async function evolve(
             tasks,
             kairnConfig,
             evolveConfig.proposerModel,
+            rollbackProjectCtx,
           );
           const rollbackCap = computeMutationCap(iter, evolveConfig.maxIterations, evolveConfig.maxMutationsPerIteration);
           if (rollbackProposal.mutations.length > rollbackCap) {
@@ -562,6 +648,10 @@ export async function evolve(
     onProgress?.({ type: 'proposing', iteration: iter });
     let proposal;
     try {
+      // Build project context for this iteration's proposer call
+      const iterProjectCtx = projectData
+        ? await buildProjectContext(projectData, harnessPath)
+        : undefined;
       proposal = await propose(
         iter,
         workspacePath,
@@ -570,6 +660,7 @@ export async function evolve(
         tasks,
         kairnConfig,
         evolveConfig.proposerModel,
+        iterProjectCtx,
       );
       // Enforce mutation cap
       const iterCap = computeMutationCap(iter, evolveConfig.maxIterations, evolveConfig.maxMutationsPerIteration);
@@ -665,6 +756,10 @@ export async function evolve(
 
     const baselineHarnessPath = path.join(workspacePath, 'iterations', '0', 'harness');
     try {
+      // Build project context for the principal proposer
+      const principalProjectCtx = projectData
+        ? await buildProjectContext(projectData, baselineHarnessPath)
+        : undefined;
       let principalProposal = await propose(
         history.length,
         workspacePath,
@@ -673,6 +768,7 @@ export async function evolve(
         tasks,
         kairnConfig,
         evolveConfig.proposerModel,
+        principalProjectCtx,
       );
 
       if (principalProposal.mutations.length > evolveConfig.maxMutationsPerIteration) {
