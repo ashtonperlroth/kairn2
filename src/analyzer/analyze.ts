@@ -16,7 +16,7 @@ import type {
   ConfigKey,
 } from './types.js';
 import { AnalysisError } from './types.js';
-import { getStrategy, getAlwaysInclude, classifyFilePriority } from './patterns.js';
+import { getStrategy, getAlwaysInclude, classifyFilePriority, resolveStrategy } from './patterns.js';
 import type { SamplingStrategy } from './patterns.js';
 import { packCodebase } from './repomix-adapter.js';
 import {
@@ -129,17 +129,23 @@ export async function analyzeProject(
     }
   }
 
-  // 2. Get language-specific sampling strategy
-  const strategy = getStrategy(profile.language);
-  if (!strategy) {
+  // 2. Get base language strategy, then enrich with manifest-resolved entry points
+  const baseStrategy = getStrategy(profile.language);
+  if (!baseStrategy) {
     throw new AnalysisError(
-      'No sampling strategy for language: ' + (profile.language ?? 'unknown'),
+      `No sampling strategy for language: ${profile.language ?? 'unknown'}`,
       'no_entry_point',
       'Supported: Python, TypeScript, Go, Rust',
     );
   }
+  const strategy = await resolveStrategy(
+    dir,
+    baseStrategy,
+    profile.framework,
+    profile.scripts,
+  );
 
-  // 3. Build include patterns from strategy
+  // 3. Build include patterns from enriched strategy
   const include = [
     ...strategy.entryPoints,
     ...strategy.domainPatterns.map((p) => p + '**/*'),
@@ -148,12 +154,11 @@ export async function analyzeProject(
   ];
 
   // 4. Pack codebase with repomix (priority-tiered truncation)
-  const strat: SamplingStrategy = strategy;
   const packed = await packCodebase(dir, {
     include,
     exclude: strategy.excludePatterns,
     maxTokens: options?.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-    prioritize: (filePath: string) => classifyFilePriority(filePath, strat),
+    prioritize: (filePath: string) => classifyFilePriority(filePath, strategy),
   });
 
   // 5. Guard: empty sample

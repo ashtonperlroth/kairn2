@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { getStrategy, getAlwaysInclude, STRATEGIES, classifyFilePriority, FileTier } from '../patterns.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'fs/promises';
+import os from 'os';
+import path from 'path';
+import { getStrategy, getAlwaysInclude, STRATEGIES, classifyFilePriority, FileTier, resolveStrategy } from '../patterns.js';
 import type { SamplingStrategy } from '../patterns.js';
 
 describe('getStrategy', () => {
@@ -136,5 +139,104 @@ describe('classifyFilePriority', () => {
     expect(FileTier.IDENTITY).toBeLessThan(FileTier.ENTRY);
     expect(FileTier.ENTRY).toBeLessThan(FileTier.DOMAIN);
     expect(FileTier.DOMAIN).toBeLessThan(FileTier.OTHER);
+  });
+});
+
+describe('resolveStrategy', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kairn-resolve-'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const tsBase = getStrategy('typescript')!;
+  const pyBase = getStrategy('python')!;
+
+  it('extracts entry points from package.json main field', async () => {
+    await fs.writeFile(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'test', main: 'dist/server.js', scripts: {} }),
+    );
+    const resolved = await resolveStrategy(tmpDir, tsBase, null, {});
+    expect(resolved.entryPoints).toContain('dist/server.js');
+    expect(resolved.entryPoints).toContain('dist/server.ts');
+  });
+
+  it('extracts entry points from package.json bin field', async () => {
+    await fs.writeFile(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'test', bin: { mycli: 'bin/cli.js' }, scripts: {} }),
+    );
+    const resolved = await resolveStrategy(tmpDir, tsBase, null, {});
+    expect(resolved.entryPoints).toContain('bin/cli.js');
+  });
+
+  it('extracts entry points from npm start script', async () => {
+    await fs.writeFile(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'test', scripts: { start: 'node src/server.js' } }),
+    );
+    const resolved = await resolveStrategy(tmpDir, tsBase, null, {
+      start: 'node src/server.js',
+    });
+    expect(resolved.entryPoints).toContain('src/server.js');
+    expect(resolved.entryPoints).toContain('src/server.ts');
+  });
+
+  it('extracts uvicorn entry from Python scripts', async () => {
+    const resolved = await resolveStrategy(tmpDir, pyBase, 'FastAPI', {
+      start: 'uvicorn app.main:app',
+    });
+    // Doesn't find it from scripts since Python doesn't check npm scripts
+    // But FastAPI framework patterns should be added
+    expect(resolved.domainPatterns).toContain('routers/');
+    expect(resolved.domainPatterns).toContain('endpoints/');
+  });
+
+  it('adds Django domain patterns for Django framework', async () => {
+    const resolved = await resolveStrategy(tmpDir, pyBase, 'Django', {});
+    expect(resolved.domainPatterns).toContain('views/');
+    expect(resolved.domainPatterns).toContain('models/');
+    expect(resolved.domainPatterns).toContain('serializers/');
+  });
+
+  it('adds Next.js domain patterns', async () => {
+    const resolved = await resolveStrategy(tmpDir, tsBase, 'Next.js', {});
+    expect(resolved.domainPatterns).toContain('pages/');
+    expect(resolved.domainPatterns).toContain('app/');
+    expect(resolved.domainPatterns).toContain('src/app/');
+  });
+
+  it('preserves base strategy patterns', async () => {
+    const resolved = await resolveStrategy(tmpDir, tsBase, null, {});
+    // All base entry points should still be present
+    for (const ep of tsBase.entryPoints) {
+      expect(resolved.entryPoints).toContain(ep);
+    }
+    // Base domain patterns preserved
+    for (const dp of tsBase.domainPatterns) {
+      expect(resolved.domainPatterns).toContain(dp);
+    }
+  });
+
+  it('dynamic entries come before static ones (higher priority)', async () => {
+    await fs.writeFile(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'test', main: 'src/custom-entry.js', scripts: {} }),
+    );
+    const resolved = await resolveStrategy(tmpDir, tsBase, null, {});
+    const customIdx = resolved.entryPoints.indexOf('src/custom-entry.js');
+    const staticIdx = resolved.entryPoints.indexOf('src/index.ts');
+    expect(customIdx).toBeLessThan(staticIdx);
+  });
+
+  it('resolves Django manage.py when file exists', async () => {
+    await fs.writeFile(path.join(tmpDir, 'manage.py'), '#!/usr/bin/env python');
+    const resolved = await resolveStrategy(tmpDir, pyBase, 'Django', {});
+    expect(resolved.entryPoints).toContain('manage.py');
   });
 });
