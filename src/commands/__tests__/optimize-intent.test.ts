@@ -21,6 +21,7 @@ function makeProfile(overrides?: Partial<ProjectProfile>): ProjectProfile {
     description: 'A test project',
     directory: '/tmp/test-project',
     language: 'TypeScript',
+    languages: ['TypeScript'],
     framework: 'Express',
     typescript: true,
     dependencies: ['express', 'typescript'],

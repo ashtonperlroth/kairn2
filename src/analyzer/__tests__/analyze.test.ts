@@ -32,6 +32,7 @@ function makeProfile(overrides: Partial<ProjectProfile> = {}): ProjectProfile {
     description: 'A test project',
     directory: '/tmp/test',
     language: 'typescript',
+    languages: ['typescript'],
     framework: null,
     typescript: true,
     dependencies: ['commander', 'chalk'],

@@ -9,6 +9,7 @@ export interface ProjectProfile {
 
   // Language & framework
   language: string | null;
+  languages: string[];
   framework: string | null;
   typescript: boolean;
 
@@ -121,21 +122,31 @@ const LANGUAGE_SIGNALS: Array<{ files: string[]; language: string }> = [
   { files: ['Gemfile'], language: 'Ruby' },
 ];
 
-function detectLanguageFromFiles(files: string[]): string | null {
+/** Check file list against all language signals, returning every match in precedence order. */
+function detectLanguagesFromFiles(files: string[]): string[] {
+  const matched: string[] = [];
   for (const signal of LANGUAGE_SIGNALS) {
-    if (files.some((f) => signal.files.includes(f))) return signal.language;
+    if (files.some((f) => signal.files.includes(f))) {
+      matched.push(signal.language);
+    }
   }
-  return null;
+  return matched;
 }
 
 /**
- * Detect the primary language from root files first. If the root has no
- * signal (common in monorepos), scan immediate subdirectories and pick
- * the most common language.
+ * Detect all languages present in the project.
+ *
+ * First checks root files and collects ALL matching languages (sorted by
+ * LANGUAGE_SIGNALS precedence order). If the root has no signal files
+ * (common in monorepos), falls back to scanning immediate subdirectories
+ * and returns all languages found, sorted by frequency (most common first).
+ * Ties in frequency are broken by LANGUAGE_SIGNALS precedence order.
+ *
+ * @returns Deduplicated array of language names, or empty array if none found.
  */
-async function detectLanguage(dir: string, keyFiles: string[]): Promise<string | null> {
-  const rootHit = detectLanguageFromFiles(keyFiles);
-  if (rootHit) return rootHit;
+async function detectLanguages(dir: string, keyFiles: string[]): Promise<string[]> {
+  const rootHits = detectLanguagesFromFiles(keyFiles);
+  if (rootHits.length > 0) return rootHits;
 
   // Monorepo fallback: scan one level of subdirectories
   const entries = await listDirSafe(dir);
@@ -149,21 +160,27 @@ async function detectLanguage(dir: string, keyFiles: string[]): Promise<string |
       continue;
     }
     const subFiles = await listDirSafe(subPath);
-    const lang = detectLanguageFromFiles(subFiles);
-    if (lang) counts.set(lang, (counts.get(lang) ?? 0) + 1);
-  }
-  if (counts.size === 0) return null;
-
-  // Return the most common language across subdirectories
-  let best: string | null = null;
-  let bestCount = 0;
-  for (const [lang, count] of counts) {
-    if (count > bestCount) {
-      best = lang;
-      bestCount = count;
+    const subLangs = detectLanguagesFromFiles(subFiles);
+    for (const lang of subLangs) {
+      counts.set(lang, (counts.get(lang) ?? 0) + 1);
     }
   }
-  return best;
+  if (counts.size === 0) return [];
+
+  // Build precedence index for tie-breaking
+  const precedence = new Map<string, number>();
+  for (let i = 0; i < LANGUAGE_SIGNALS.length; i++) {
+    precedence.set(LANGUAGE_SIGNALS[i].language, i);
+  }
+
+  // Sort by frequency descending, then by LANGUAGE_SIGNALS precedence ascending
+  return [...counts.entries()]
+    .sort((a, b) => {
+      const freqDiff = b[1] - a[1];
+      if (freqDiff !== 0) return freqDiff;
+      return (precedence.get(a[0]) ?? 999) - (precedence.get(b[0]) ?? 999);
+    })
+    .map(([lang]) => lang);
 }
 
 function extractEnvKeys(content: string): string[] {
@@ -195,7 +212,8 @@ export async function scanProject(dir: string): Promise<ProjectProfile> {
   );
 
   // Detect language & framework
-  const language = await detectLanguage(dir, keyFiles);
+  const detectedLanguages = await detectLanguages(dir, keyFiles);
+  const language = detectedLanguages[0] ?? null;
   const framework = detectFramework(allDeps);
   const typescript = keyFiles.includes("tsconfig.json") || allDeps.includes("typescript");
 
@@ -272,6 +290,7 @@ export async function scanProject(dir: string): Promise<ProjectProfile> {
     description,
     directory: dir,
     language,
+    languages: detectedLanguages,
     framework,
     typescript,
     dependencies: deps,
