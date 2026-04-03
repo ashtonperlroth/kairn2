@@ -12,6 +12,7 @@ import { collectAndWriteKeys, writeEmptyEnvFile } from "../secrets.js";
 import { autonomyLabel } from "../autonomy.js";
 import type { RuntimeTarget, Clarification, AutonomyLevel } from "../types.js";
 import { detectExistingRepo } from "./detect-existing-repo.js";
+import { persistHarnessIR } from "../compiler/persist.js";
 
 export const describeCommand = new Command("describe")
   .description("Describe your workflow and generate a Claude Code environment")
@@ -145,6 +146,15 @@ export const describeCommand = new Command("describe")
       const msg = err instanceof Error ? err.message : String(err);
       console.log(chalk.red(`\n  ${msg}\n`));
       process.exit(1);
+    }
+
+    // 6a. Persist HarnessIR for downstream consumers (evolve loop, proposer, architect)
+    if (spec.ir) {
+      try {
+        await persistHarnessIR(process.cwd(), spec.ir);
+      } catch {
+        // Non-fatal: IR persistence is a best-effort optimization
+      }
     }
 
     // 7. Results display

@@ -23,6 +23,7 @@ import { printCompactBanner } from "../logo.js";
 import { analyzeProject } from "../analyzer/analyze.js";
 import { AnalysisError } from "../analyzer/types.js";
 import type { ProjectAnalysis } from "../analyzer/types.js";
+import { persistHarnessIR } from "../compiler/persist.js";
 
 interface FileDiff {
   path: string;
@@ -357,6 +358,16 @@ export const optimizeCommand = new Command("optimize")
       const msg = err instanceof Error ? err.message : String(err);
       console.log(ui.errorBox("KAIRN — Error", `Optimization failed: ${msg}`));
       process.exit(1);
+    }
+
+    // 4a. Persist HarnessIR for downstream consumers (evolve loop, proposer, architect)
+    if (spec.ir) {
+      try {
+        await persistHarnessIR(targetDir, spec.ir);
+      } catch {
+        // Non-fatal: IR persistence is a best-effort optimization
+        console.log(ui.warn("Could not persist harness IR to .kairn/harness-ir.json"));
+      }
     }
 
     // 5. Show results
