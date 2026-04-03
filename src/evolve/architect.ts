@@ -343,12 +343,25 @@ export async function proposeArchitecture(
 ): Promise<ArchitectProposal> {
   const harnessFiles = await readHarnessFiles(harnessPath);
   const traces = await loadIterationTraces(workspacePath, iteration);
+
+  // Load knowledge base if not provided externally
+  let effectiveKnowledge = knowledgeContext;
+  if (!effectiveKnowledge) {
+    try {
+      const { loadKnowledgeBase, formatKnowledgeForArchitect } = await import('./knowledge.js');
+      const patterns = await loadKnowledgeBase();
+      effectiveKnowledge = formatKnowledgeForArchitect(patterns, null);
+    } catch {
+      // Knowledge base is non-critical
+    }
+  }
+
   const userMessage = buildArchitectUserMessage(
     harnessFiles,
     traces,
     tasks,
     history,
-    knowledgeContext,
+    effectiveKnowledge,
   );
 
   const architectConfig: KairnConfig = { ...config, model: architectModel };
