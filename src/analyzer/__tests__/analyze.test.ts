@@ -418,4 +418,23 @@ describe('analyzeProject', () => {
     expect(result.architecture_style).toBe('unknown');
     expect(result.deployment_model).toBe('unknown');
   });
+
+  it('writes packed source file alongside analysis cache', async () => {
+    const packedContent = '### src/index.ts\n\nconsole.log("packed source!");';
+    mockPackCodebase.mockResolvedValue(makePackResult({ content: packedContent }));
+    mockCallLLM.mockResolvedValue(makeValidLLMResponse());
+
+    const profile = makeProfile({ directory: tempDir });
+    const config = makeConfig();
+
+    await analyzeProject(tempDir, profile, config);
+
+    // Verify packed source file was written
+    const packedPath = path.join(tempDir, '.kairn-packed-source.txt');
+    const stat = await fs.stat(packedPath);
+    expect(stat.isFile()).toBe(true);
+
+    const content = await fs.readFile(packedPath, 'utf-8');
+    expect(content).toBe(packedContent);
+  });
 });

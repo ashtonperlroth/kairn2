@@ -215,8 +215,8 @@ export async function analyzeProject(
     analyzed_at: new Date().toISOString(),
   };
 
-  // 11. Write cache and return
-  await writeCache(dir, analysis);
+  // 11. Write cache (including packed source) and return
+  await writeCache(dir, analysis, packed.content);
   return analysis;
 }
 

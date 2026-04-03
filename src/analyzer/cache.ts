@@ -32,24 +32,42 @@ const KAIRN_VERSION = getKairnVersion();
 
 const CACHE_FILENAME = '.kairn-analysis.json';
 
+/** Filename for the cached packed source code alongside the analysis cache. */
+export const PACKED_SOURCE_FILENAME = '.kairn-packed-source.txt';
+
 /** Shape of the analysis cache file written to disk. */
 export interface AnalysisCache {
   analysis: ProjectAnalysis;
   content_hash: string;
   kairn_version: string;
+  /** Packed source code content, or null if not available (backward compat). */
+  packedSource: string | null;
 }
 
 /**
  * Read a cached analysis from disk.
  *
  * Returns `null` if the cache file is missing or contains invalid JSON.
+ * Also reads the packed source file if it exists alongside the cache,
+ * returning `null` for `packedSource` if the file is missing (backward compat).
  */
 export async function readCache(dir: string): Promise<AnalysisCache | null> {
   const filePath = path.join(dir, CACHE_FILENAME);
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
     const parsed: unknown = JSON.parse(raw);
-    return parsed as AnalysisCache;
+    const cache = parsed as Omit<AnalysisCache, 'packedSource'>;
+
+    // Attempt to read packed source file (may not exist for older caches)
+    let packedSource: string | null = null;
+    try {
+      const packedPath = path.join(dir, PACKED_SOURCE_FILENAME);
+      packedSource = await fs.readFile(packedPath, 'utf-8');
+    } catch {
+      // Packed source file doesn't exist — backward compatible
+    }
+
+    return { ...cache, packedSource };
   } catch {
     return null;
   }
@@ -59,16 +77,31 @@ export async function readCache(dir: string): Promise<AnalysisCache | null> {
  * Write an analysis cache to disk.
  *
  * Persists the analysis along with its content_hash and the current kairn
- * CLI version for future invalidation checks.
+ * CLI version for future invalidation checks. When `packedSource` is provided,
+ * also writes the packed source content to a separate file alongside the cache.
+ *
+ * @param dir - Directory to write the cache files to.
+ * @param analysis - The ProjectAnalysis to cache.
+ * @param packedSource - Optional packed source code to persist alongside the analysis.
  */
-export async function writeCache(dir: string, analysis: ProjectAnalysis): Promise<void> {
+export async function writeCache(
+  dir: string,
+  analysis: ProjectAnalysis,
+  packedSource?: string,
+): Promise<void> {
   const filePath = path.join(dir, CACHE_FILENAME);
-  const cache: AnalysisCache = {
+  const cache: Omit<AnalysisCache, 'packedSource'> = {
     analysis,
     content_hash: analysis.content_hash,
     kairn_version: KAIRN_VERSION,
   };
   await fs.writeFile(filePath, JSON.stringify(cache, null, 2), 'utf-8');
+
+  // Write packed source to a separate file if provided
+  if (packedSource !== undefined) {
+    const packedPath = path.join(dir, PACKED_SOURCE_FILENAME);
+    await fs.writeFile(packedPath, packedSource, 'utf-8');
+  }
 }
 
 /**

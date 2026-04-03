@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import type { ProjectAnalysis } from '../types.js';
 
-const { readCache, writeCache, computeContentHash, isCacheValid } =
+const { readCache, writeCache, computeContentHash, isCacheValid, PACKED_SOURCE_FILENAME } =
   await import('../cache.js');
 
 function makeAnalysis(overrides: Partial<ProjectAnalysis> = {}): ProjectAnalysis {
@@ -153,9 +153,89 @@ describe('isCacheValid', () => {
       analysis: makeAnalysis({ content_hash: 'hash-a' }),
       content_hash: 'hash-a',
       kairn_version: '0.0.0-fake',
+      packedSource: null,
     };
     // Current kairn version is not 0.0.0-fake, so this should be false
     const result = isCacheValid(cache, 'hash-a');
     expect(result).toBe(false);
+  });
+});
+
+describe('packed source caching', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kairn-cache-test-'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('writes packed source file alongside analysis cache', async () => {
+    const analysis = makeAnalysis({ content_hash: 'packed-hash' });
+    const packedSource = '// packed source code content\nconst x = 1;\n';
+
+    await writeCache(tempDir, analysis, packedSource);
+
+    const packedPath = path.join(tempDir, PACKED_SOURCE_FILENAME);
+    const content = await fs.readFile(packedPath, 'utf-8');
+    expect(content).toBe(packedSource);
+  });
+
+  it('reads packed source content back from cache', async () => {
+    const analysis = makeAnalysis({ content_hash: 'packed-read-hash' });
+    const packedSource = '// some packed code\nfunction hello() {}\n';
+
+    await writeCache(tempDir, analysis, packedSource);
+    const cached = await readCache(tempDir);
+
+    expect(cached).not.toBeNull();
+    expect(cached!.packedSource).toBe(packedSource);
+  });
+
+  it('returns null packedSource when packed source file is missing (backward compat)', async () => {
+    const analysis = makeAnalysis({ content_hash: 'no-packed-hash' });
+
+    // Write cache WITHOUT packed source (simulates old cache format)
+    await writeCache(tempDir, analysis);
+    // Manually delete the packed source file to simulate old cache
+    const packedPath = path.join(tempDir, PACKED_SOURCE_FILENAME);
+    try {
+      await fs.unlink(packedPath);
+    } catch {
+      // File may not exist if writeCache without packedSource doesn't create it
+    }
+
+    const cached = await readCache(tempDir);
+
+    expect(cached).not.toBeNull();
+    expect(cached!.analysis.purpose).toBe('Test project');
+    expect(cached!.packedSource).toBeNull();
+  });
+
+  it('writeCache without packedSource does not create packed source file', async () => {
+    const analysis = makeAnalysis({ content_hash: 'no-packed-hash-2' });
+
+    await writeCache(tempDir, analysis);
+
+    const packedPath = path.join(tempDir, PACKED_SOURCE_FILENAME);
+    await expect(fs.access(packedPath)).rejects.toThrow();
+  });
+
+  it('roundtrips analysis correctly even with packed source', async () => {
+    const analysis = makeAnalysis({
+      content_hash: 'roundtrip-packed',
+      purpose: 'Packed roundtrip test',
+    });
+    const packedSource = 'const y = 42;\n';
+
+    await writeCache(tempDir, analysis, packedSource);
+    const cached = await readCache(tempDir);
+
+    expect(cached).not.toBeNull();
+    expect(cached!.analysis.purpose).toBe('Packed roundtrip test');
+    expect(cached!.content_hash).toBe('roundtrip-packed');
+    expect(cached!.packedSource).toBe(packedSource);
   });
 });
