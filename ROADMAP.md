@@ -504,41 +504,41 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 > The scanner extracts a project's bill of materials (name, deps, scripts) but not its meaning (what the code does, how modules interact, the domain). This is why generated harnesses are generic — the LLM agents never see source code. v2.14.0 adds a semantic analysis stage between scan and compile that reads actual source files, extracts domain knowledge via LLM, and produces a structured `ProjectAnalysis` that enriches the compilation intent. Uses [Repomix](https://github.com/yamadashy/repomix) for intelligent file sampling, language-specific heuristics for prioritization, and fails hard if analysis cannot be completed (no hallucinated harnesses).
 
 **Codebase Analyzer (`kairn analyze`):**
-- [ ] `analyzeProject()` function — new stage between `scanProject()` and `compile()`
-- [ ] Repomix integration — use as library for intelligent file packing with token budget (5000 tokens)
-- [ ] Language-specific sampling strategies (Python, TypeScript, Go, Rust) — entry points, domain patterns, exclude patterns
-- [ ] Always-include files: README.md, README.rst, config files (*.toml, *.yaml, *.yml)
-- [ ] LLM semantic analysis — produces structured `ProjectAnalysis` JSON from sampled code
-- [ ] `kairn analyze` standalone command — run analysis and display results without compiling
-- [ ] `kairn analyze --refresh` — force re-analysis, bypassing cache
+- [x] `analyzeProject()` function — new stage between `scanProject()` and `compile()`
+- [x] Repomix integration — use as library for intelligent file packing with token budget (5000 tokens)
+- [x] Language-specific sampling strategies (Python, TypeScript, Go, Rust) — entry points, domain patterns, exclude patterns
+- [x] Always-include files: README.md, README.rst, config files (*.toml, *.yaml, *.yml)
+- [x] LLM semantic analysis — produces structured `ProjectAnalysis` JSON from sampled code
+- [x] `kairn analyze` standalone command — run analysis and display results without compiling
+- [x] `kairn analyze --refresh` — force re-analysis, bypassing cache
 
 **ProjectAnalysis schema (structured JSON output):**
-- [ ] `purpose` — one-line project goal (specific: "Bayesian posterior estimation for PK models", not "data processing")
-- [ ] `domain` — category (e.g., "simulation-based inference", "web API", "CLI tool")
-- [ ] `key_modules[]` — name, path, description, responsibilities for each major component
-- [ ] `workflows[]` — name, description, trigger, steps for main user/system flows
-- [ ] `architecture_style` — how the project is structured (monolithic, microservice, plugin, etc.)
-- [ ] `deployment_model` — how it runs (serverless, containerized, CLI, etc.)
-- [ ] `dataflow[]` — from/to/data edges showing how data moves between modules
-- [ ] `config_keys[]` — name/purpose for environment variables and configuration
+- [x] `purpose` — one-line project goal (specific: "Bayesian posterior estimation for PK models", not "data processing")
+- [x] `domain` — category (e.g., "simulation-based inference", "web API", "CLI tool")
+- [x] `key_modules[]` — name, path, description, responsibilities for each major component
+- [x] `workflows[]` — name, description, trigger, steps for main user/system flows
+- [x] `architecture_style` — how the project is structured (monolithic, microservice, plugin, etc.)
+- [x] `deployment_model` — how it runs (serverless, containerized, CLI, etc.)
+- [x] `dataflow[]` — from/to/data edges showing how data moves between modules
+- [x] `config_keys[]` — name/purpose for environment variables and configuration
 
 **Analysis caching:**
-- [ ] Cache `ProjectAnalysis` to `.kairn-analysis.json` in project root
-- [ ] Cache includes content hash of sampled files — invalidates on source changes
-- [ ] `kairn optimize` reads cache if valid, skips re-analysis
-- [ ] `kairn analyze --refresh` forces re-analysis regardless of cache
+- [x] Cache `ProjectAnalysis` to `.kairn-analysis.json` in project root
+- [x] Cache includes content hash of sampled files — invalidates on source changes
+- [x] `kairn optimize` reads cache if valid, skips re-analysis
+- [x] `kairn analyze --refresh` forces re-analysis regardless of cache
 
 **Pipeline integration:**
-- [ ] `buildOptimizeIntent()` accepts `ProjectAnalysis` alongside `ProjectProfile`
-- [ ] Enriched intent includes: purpose, domain, key modules with responsibilities, workflows with steps, dataflow edges
-- [ ] All compilation agents (sections-writer, command-writer, agent-writer, etc.) receive domain-specific context
-- [ ] Fail hard if analyzer cannot produce valid analysis — no fallback to metadata-only (prevents generic output)
+- [x] `buildOptimizeIntent()` accepts `ProjectAnalysis` alongside `ProjectProfile`
+- [x] Enriched intent includes: purpose, domain, key modules with responsibilities, workflows with steps, dataflow edges
+- [x] All compilation agents (sections-writer, command-writer, agent-writer, etc.) receive domain-specific context
+- [x] Fail hard if analyzer cannot produce valid analysis — no fallback to metadata-only (prevents generic output)
 
 **Error handling (fail-hard policy):**
-- [ ] `AnalysisError` class with structured error types (no_entry_point, empty_sample, llm_parse_failure)
-- [ ] If no source files match sampling heuristics → throw with actionable message
-- [ ] If LLM returns unparseable analysis → throw, do not proceed to compile
-- [ ] `kairn optimize` shows clear error: "Cannot analyze codebase. Run `kairn analyze` to diagnose."
+- [x] `AnalysisError` class with structured error types (no_entry_point, empty_sample, llm_parse_failure)
+- [x] If no source files match sampling heuristics → throw with actionable message
+- [x] If LLM returns unparseable analysis → throw, do not proceed to compile
+- [x] `kairn optimize` shows clear error: "Cannot analyze codebase. Run `kairn analyze` to diagnose."
 
 ### v2.15.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)

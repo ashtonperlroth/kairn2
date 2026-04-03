@@ -8,7 +8,13 @@
  * sampled files haven't changed.
  */
 
-import type { ProjectAnalysis } from './types.js';
+import type {
+  ProjectAnalysis,
+  AnalysisModule,
+  AnalysisWorkflow,
+  DataflowEdge,
+  ConfigKey,
+} from './types.js';
 import { AnalysisError } from './types.js';
 import { getStrategy, getAlwaysInclude } from './patterns.js';
 import { packCodebase } from './repomix-adapter.js';
@@ -21,6 +27,35 @@ import {
 import { callLLM } from '../llm.js';
 import type { ProjectProfile } from '../scanner/scan.js';
 import type { KairnConfig } from '../types.js';
+
+// --- LLM output shape validators ---
+// These guard against malformed LLM responses that pass Array.isArray but
+// have wrong element shapes. Invalid elements are silently dropped.
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isModule(v: unknown): v is AnalysisModule {
+  return isRecord(v) && typeof v.name === 'string' && typeof v.path === 'string';
+}
+
+function isWorkflow(v: unknown): v is AnalysisWorkflow {
+  return isRecord(v) && typeof v.name === 'string' && typeof v.trigger === 'string';
+}
+
+function isDataflowEdge(v: unknown): v is DataflowEdge {
+  return isRecord(v) && typeof v.from === 'string' && typeof v.to === 'string';
+}
+
+function isConfigKey(v: unknown): v is ConfigKey {
+  return isRecord(v) && typeof v.name === 'string' && typeof v.purpose === 'string';
+}
+
+function validateArray<T>(raw: unknown, guard: (v: unknown) => v is T): T[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(guard);
+}
 
 /**
  * System prompt for the analysis LLM call.
@@ -149,26 +184,18 @@ export async function analyzeProject(
   // 9. Compute content hash from the sampled files
   const contentHash = await computeContentHash(packed.filePaths, dir);
 
-  // 10. Build the ProjectAnalysis
+  // 10. Build the ProjectAnalysis with shape validation on array elements
   const analysis: ProjectAnalysis = {
     purpose: parsed.purpose as string,
     domain: parsed.domain as string,
-    key_modules: Array.isArray(parsed.key_modules)
-      ? (parsed.key_modules as ProjectAnalysis['key_modules'])
-      : [],
-    workflows: Array.isArray(parsed.workflows)
-      ? (parsed.workflows as ProjectAnalysis['workflows'])
-      : [],
+    key_modules: validateArray(parsed.key_modules, isModule),
+    workflows: validateArray(parsed.workflows, isWorkflow),
     architecture_style:
       (parsed.architecture_style as string) ?? 'unknown',
     deployment_model:
       (parsed.deployment_model as string) ?? 'unknown',
-    dataflow: Array.isArray(parsed.dataflow)
-      ? (parsed.dataflow as ProjectAnalysis['dataflow'])
-      : [],
-    config_keys: Array.isArray(parsed.config_keys)
-      ? (parsed.config_keys as ProjectAnalysis['config_keys'])
-      : [],
+    dataflow: validateArray(parsed.dataflow, isDataflowEdge),
+    config_keys: validateArray(parsed.config_keys, isConfigKey),
     sampled_files: packed.filePaths,
     content_hash: contentHash,
     analyzed_at: new Date().toISOString(),

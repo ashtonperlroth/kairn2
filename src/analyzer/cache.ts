@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
@@ -7,19 +8,16 @@ import type { ProjectAnalysis } from './types.js';
 /**
  * Resolve the kairn CLI version from package.json.
  *
- * Uses fileURLToPath + directory traversal so the path is correct both
- * during development (`src/analyzer/cache.ts`) and after tsup bundles
- * everything into `dist/cli.js`.
+ * Walks up from this file's directory until it finds the kairn-cli
+ * package.json. Works both during development (`src/analyzer/cache.ts`)
+ * and after tsup bundles everything into `dist/cli.js`.
  */
 function getKairnVersion(): string {
-  // Walk up from this file's directory until we find package.json
   let dir = path.dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 5; i++) {
     try {
       const pkgPath = path.join(dir, 'package.json');
-      // Use require-less approach: we only need this at module init time
-      // eslint-disable-next-line no-restricted-syntax
-      const content = require('fs').readFileSync(pkgPath, 'utf-8') as string;
+      const content = fsSync.readFileSync(pkgPath, 'utf-8');
       const parsed = JSON.parse(content) as { name?: string; version?: string };
       if (parsed.name === 'kairn-cli') return parsed.version ?? '0.0.0';
     } catch {

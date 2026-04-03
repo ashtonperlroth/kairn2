@@ -273,8 +273,9 @@ export const optimizeCommand = new Command("optimize")
         console.log(ui.errorBox("KAIRN — Analysis Error", `${err.message}\n\nRun \`kairn analyze\` for details.`));
         process.exit(1);
       }
-      // Non-analysis errors: warn but continue without analysis
-      analysisSpinner.warn("Analysis skipped (non-critical error)");
+      // Fail hard on all errors — never fall back to metadata-only
+      analysisSpinner.fail("Analysis failed");
+      throw err;
     }
 
     // 3. Audit existing harness
