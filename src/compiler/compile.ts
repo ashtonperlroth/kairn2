@@ -98,13 +98,22 @@ export function buildSettings(skeleton: SkeletonSpec, registry: RegistryTool[]):
     allow.push("Bash(npm run *)", "Bash(npx *)");
   }
 
-  const deny = [
+  // Determine if project uses env vars (tools requiring auth, or .env-based config)
+  const usesEnvVars = skeleton.tools.some((t) => {
+    const reg = registry.find((r) => r.id === t.tool_id);
+    return reg?.auth === 'api_key' || (reg?.env_vars && reg.env_vars.length > 0);
+  });
+
+  const deny: string[] = [
     "Bash(rm -rf *)",
     "Bash(curl * | sh)",
     "Bash(wget * | sh)",
-    "Read(./.env)",
     "Read(./secrets/**)",
   ];
+  // Only deny .env reads when project doesn't use env vars
+  if (!usesEnvVars) {
+    deny.push("Read(./.env)");
+  }
 
   // Build hooks
   const hooks: Record<string, unknown[]> = {
@@ -165,6 +174,19 @@ export function buildSettings(skeleton: SkeletonSpec, registry: RegistryTool[]):
       ],
     });
   }
+
+  // Add doc-update prompt hook — nudges Claude to update living docs
+  // after meaningful changes (architectural decisions, debugging insights, etc.)
+  if (!hooks.PostToolUse) hooks.PostToolUse = [];
+  (hooks.PostToolUse as unknown[]).push({
+    matcher: "Write|Edit",
+    hooks: [
+      {
+        type: "prompt",
+        prompt: "If this change involves an architectural decision, debugging insight, or task completion, consider updating .claude/docs/. Only update if genuinely useful — don't add noise.",
+      },
+    ],
+  });
 
   return { permissions: { allow, deny }, hooks };
 }
@@ -259,7 +281,8 @@ export async function compile(
   const batchProgress = (bp: BatchProgress): void => {
     if (bp.status === 'start') {
       const phaseLabel = bp.phaseId as CompileProgress['phase'];
-      onProgress?.({ phase: phaseLabel, status: 'running', message: `Pass 3 (${bp.phaseId}): Running ${bp.agentCount} agents...` });
+      const detail = bp.detail ? ` (${bp.detail})` : '';
+      onProgress?.({ phase: phaseLabel, status: 'running', message: `Pass 3 (${bp.phaseId}): Running ${bp.agentCount} agents${detail}...` });
     } else if (bp.status === 'complete') {
       const phaseLabel = bp.phaseId as CompileProgress['phase'];
       onProgress?.({ phase: phaseLabel, status: 'success', message: `Pass 3 (${bp.phaseId}): Complete`, elapsed: (Date.now() - startTime) / 1000 });
@@ -287,6 +310,17 @@ export async function compile(
   const intentPatterns: IntentPattern[] = [];
   const intentPromptTemplate = '';
   const intentHooks: Record<string, string> = {};
+
+  // Collect env vars from selected tools for CLAUDE.md documentation
+  const envVars: Array<{ name: string; description: string }> = [];
+  for (const tool of skeleton.tools) {
+    const reg = registry.find((r) => r.id === tool.tool_id);
+    if (reg?.env_vars) {
+      for (const ev of reg.env_vars) {
+        envVars.push({ name: ev.name, description: ev.description });
+      }
+    }
+  }
 
   onProgress?.({ phase: 'assembly', status: 'success', message: 'Pass 4: Configured MCP servers & settings' });
 
