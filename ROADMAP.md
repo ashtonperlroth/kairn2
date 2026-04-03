@@ -540,7 +540,37 @@ Full plan: [`PLAN-v2.7.0.md`](PLAN-v2.7.0.md)
 - [x] If LLM returns unparseable analysis → throw, do not proceed to compile
 - [x] `kairn optimize` shows clear error: "Cannot analyze codebase. Run `kairn analyze` to diagnose."
 
-### v2.15.0 — Polish & Integration
+### v2.15.0 — Context Enrichment & IR Persistence ([plan](PLAN-v2.15.0.md))
+> The analyzer extracts 60K tokens of source code, compresses it to ~1K of ProjectAnalysis, and then every downstream agent only sees the summary. The raw evidence is discarded. Meanwhile, the evolve loop's proposer and architect operate blind — they can read the harness files and traces but have never seen the actual project source code or the structured IR. This version plumbs existing data through to every agent that needs it, and adds SWE-bench-style evaluations to the evolve loop.
+
+**Context enrichment for compilation agents:**
+- [ ] Cache packed source code to `.kairn/packed-source.txt` alongside `analysis.json`
+- [ ] `buildOptimizeIntent()` accepts `packedSource` parameter — raw code included as evidence section
+- [ ] Compilation agents (sections-writer, command-writer, agent-writer, etc.) receive ~62K tokens of context (vs. ~2K today)
+- [ ] ProjectAnalysis acts as structured table of contents; packed source is the raw evidence
+
+**Context enrichment for evolve proposers:**
+- [ ] `buildProposerUserMessage()` accepts optional `projectContext` (ProjectAnalysis + key source files + HarnessIR)
+- [ ] `buildArchitectUserMessage()` accepts same `projectContext`
+- [ ] ProjectAnalysis (~1K tokens) always included when available — zero-cost, high signal
+- [ ] Key source files (~10K tokens) included for evolve proposers — entry points + domain files subset
+- [ ] HarnessIR structure summary included — semantic map of sections, commands, rules, agents, MCP servers
+
+**HarnessIR persistence:**
+- [ ] Serialize IR to `iterations/{N}/harness-ir.json` after every mutation application in the evolve loop
+- [ ] Persist IR to `.kairn/harness-ir.json` after initial compilation
+- [ ] IR available for proposer context, cross-iteration structural diffing, and multi-platform rendering (v3.0 adapter thesis)
+- [ ] `kairn analyze --ir` flag to display the current harness IR structure
+
+**SWE-bench-style evaluations for the evolve loop:**
+- [ ] New eval template: `real-bug-fix` — apply a known bug, task the agent with fixing it from the issue description alone
+- [ ] New eval template: `real-feature-add` — add a small, well-defined feature with acceptance criteria
+- [ ] New eval template: `codebase-question` — ask the agent a factual question about the codebase that requires reading source code
+- [ ] Eval task generator reads `ProjectAnalysis` to produce domain-specific tasks (not generic harness-sensitivity probes)
+- [ ] Mixed eval suite: 50% harness-sensitivity probes (existing), 50% SWE-bench-style substantive tasks (new)
+- [ ] Score breakdown in `kairn evolve report`: harness adherence score vs. substantive task score
+
+### v2.16.0 — Polish & Integration
 - [ ] `kairn evolve watch` — live dashboard during evolution (progress, scores, current mutation)
 - [ ] Integration with `kairn describe` ("generate, then auto-evolve for 3 iterations")
 - [ ] Integration with `kairn optimize` ("audit, then evolve the fixes")
