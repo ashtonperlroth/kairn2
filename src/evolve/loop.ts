@@ -665,7 +665,7 @@ export async function evolve(
 
     const baselineHarnessPath = path.join(workspacePath, 'iterations', '0', 'harness');
     try {
-      const principalProposal = await propose(
+      let principalProposal = await propose(
         history.length,
         workspacePath,
         baselineHarnessPath,
@@ -676,7 +676,10 @@ export async function evolve(
       );
 
       if (principalProposal.mutations.length > evolveConfig.maxMutationsPerIteration) {
-        principalProposal.mutations = principalProposal.mutations.slice(0, evolveConfig.maxMutationsPerIteration);
+        principalProposal = {
+          ...principalProposal,
+          mutations: principalProposal.mutations.slice(0, evolveConfig.maxMutationsPerIteration),
+        };
       }
 
       const principalIterNum = history.length;

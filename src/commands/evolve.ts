@@ -554,8 +554,8 @@ evolveCommand
         // Iteration table
         const showVariance = evolveConfig.runsPerTask > 1;
         console.log(showVariance
-          ? '  Iter  Score        Mutations  Status'
-          : '  Iter  Score     Mutations  Status');
+          ? '  Iter  Score        Mutations  Mode       Status'
+          : '  Iter  Score     Mutations  Mode       Status');
         for (const iter of result.iterations) {
           // Compute average stddev across tasks for this iteration
           let scoreDisplay: string;
@@ -573,12 +573,13 @@ evolveCommand
           }
           const mutations = iter.proposal?.mutations.length ?? 0;
           const mutStr = mutations > 0 ? mutations.toString() : '-';
+          const mode = (iter.source ?? 'reactive').padEnd(9);
           let status = 'evaluated';
           if (iter.iteration === 0) status = 'baseline';
           else if (!iter.proposal && !iter.diffPatch) status = 'rollback';
           else if (iter.score >= 100) status = 'perfect';
           else if (iter.iteration === result.bestIteration) status = 'best';
-          console.log(`  ${iter.iteration.toString().padStart(4)}  ${scoreDisplay}  ${mutStr.padStart(9)}  ${status}`);
+          console.log(`  ${iter.iteration.toString().padStart(4)}  ${scoreDisplay}  ${mutStr.padStart(9)}  ${mode}  ${status}`);
         }
       }
     } catch (err) {

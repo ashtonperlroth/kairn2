@@ -79,7 +79,8 @@ export async function runResearch(
       // Clone repo (shallow clone for speed)
       const repoDir = path.join(tempBase, name);
       try {
-        await execAsync(`git clone --depth 1 ${url} ${repoDir}`, { timeout: 60000 });
+        // URL validated by validateRepoUrl(); repoDir is a temp path we control
+        await execAsync(`git clone --depth 1 '${url.replace(/'/g, "'\\''")}' '${repoDir.replace(/'/g, "'\\''")}' 2>/dev/null`, { timeout: 60000 });
       } catch (err) {
         onProgress?.({
           type: 'repo-complete',

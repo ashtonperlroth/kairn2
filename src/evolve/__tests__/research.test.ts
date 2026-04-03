@@ -328,11 +328,11 @@ describe('runResearch', () => {
 
     // Mock exec to simulate a clone failure (so it doesn't block)
     const mockExec = vi.mocked(exec);
-    mockExec.mockImplementation((_cmd: string, _opts: unknown, callback?: unknown) => {
+    mockExec.mockImplementation((...args: unknown[]) => {
+      const callback = args.find((a) => typeof a === 'function');
       if (typeof callback === 'function') {
         (callback as (err: Error | null) => void)(new Error('clone failed'));
       }
-      // For promisified usage, the mock resolves the promise via the callback pattern
       return undefined as unknown as ReturnType<typeof exec>;
     });
 
