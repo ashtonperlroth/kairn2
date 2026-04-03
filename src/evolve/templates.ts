@@ -1,5 +1,6 @@
 import { callLLM } from '../llm.js';
 import type { KairnConfig } from '../types.js';
+import type { ProjectAnalysis } from '../analyzer/types.js';
 import type { EvalTemplate, ProjectProfileSummary, Task, TemplateCategory } from './types.js';
 
 interface TemplateMetadata {
@@ -238,12 +239,86 @@ function validateTask(obj: unknown, index: number): Task {
 }
 
 /**
+ * Build a structured project analysis section for the LLM task generation prompt.
+ *
+ * Extracts key modules, workflows, architecture, config keys, and other
+ * domain-specific context from a ProjectAnalysis to help the LLM generate
+ * tasks that reference actual project components.
+ */
+function buildAnalysisContext(analysis: ProjectAnalysis): string {
+  const lines: string[] = ["## Project Analysis", ""];
+
+  // Purpose and domain
+  lines.push(`Purpose: ${analysis.purpose}`);
+  lines.push(`Domain: ${analysis.domain}`);
+  lines.push(`Architecture: ${analysis.architecture_style}`);
+  lines.push(`Deployment: ${analysis.deployment_model}`);
+  lines.push("");
+
+  // Key modules with paths and responsibilities
+  if (analysis.key_modules.length > 0) {
+    lines.push("### Key Modules");
+    lines.push("");
+    for (const mod of analysis.key_modules) {
+      lines.push(`- **${mod.name}** (${mod.path}): ${mod.description}`);
+      if (mod.responsibilities.length > 0) {
+        lines.push(`  Responsibilities: ${mod.responsibilities.join(", ")}`);
+      }
+    }
+    lines.push("");
+  }
+
+  // Workflows
+  if (analysis.workflows.length > 0) {
+    lines.push("### Workflows");
+    lines.push("");
+    for (const wf of analysis.workflows) {
+      lines.push(`- **${wf.name}**: ${wf.description} (trigger: ${wf.trigger})`);
+      lines.push(`  Steps: ${wf.steps.join(" -> ")}`);
+    }
+    lines.push("");
+  }
+
+  // Config keys
+  if (analysis.config_keys.length > 0) {
+    lines.push("### Config Keys");
+    lines.push("");
+    for (const key of analysis.config_keys) {
+      lines.push(`- ${key.name}: ${key.purpose}`);
+    }
+    lines.push("");
+  }
+
+  // Dataflow edges
+  if (analysis.dataflow.length > 0) {
+    lines.push("### Data Flow");
+    lines.push("");
+    for (const edge of analysis.dataflow) {
+      lines.push(`- ${edge.from} -> ${edge.to}: ${edge.data}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("IMPORTANT: Use this analysis to generate domain-specific tasks:");
+  lines.push("- real-bug-fix tasks should reference actual module names and paths listed above");
+  lines.push("- codebase-question tasks should ask about actual workflows, modules, and config keys");
+  lines.push("- real-feature-add tasks should extend actual functionality in the modules listed above");
+
+  return lines.join("\n");
+}
+
+/**
  * Build the user message for LLM task generation.
+ *
+ * When a ProjectAnalysis is provided, enriches the prompt with domain-specific
+ * context including module names, paths, workflows, and config keys so the LLM
+ * can generate tasks that reference actual project components.
  */
 function buildTaskGenerationMessage(
   claudeMd: string,
   projectProfile: ProjectProfileSummary,
   templates: EvalTemplate[],
+  analysis?: ProjectAnalysis,
 ): string {
   const profileLines = [
     `Language: ${projectProfile.language ?? "unknown"}`,
@@ -259,7 +334,7 @@ function buildTaskGenerationMessage(
     })
     .join("\n");
 
-  return [
+  const sections = [
     "## CLAUDE.md",
     "",
     claudeMd,
@@ -268,12 +343,23 @@ function buildTaskGenerationMessage(
     "",
     ...profileLines,
     "",
+  ];
+
+  // Insert analysis context when available
+  if (analysis) {
+    sections.push(buildAnalysisContext(analysis));
+    sections.push("");
+  }
+
+  sections.push(
     "## Selected Eval Templates",
     "",
     templateDescriptions,
     "",
     "Generate concrete, project-specific tasks for each template above.",
-  ].join("\n");
+  );
+
+  return sections.join("\n");
 }
 
 /**
@@ -281,11 +367,14 @@ function buildTaskGenerationMessage(
  *
  * Sends the project's CLAUDE.md, profile summary, and selected templates
  * to the LLM, then parses and validates the returned task definitions.
+ * When a ProjectAnalysis is provided, enriches the prompt with domain-specific
+ * context so generated tasks reference actual project modules and workflows.
  *
  * @param claudeMd - Contents of the project's CLAUDE.md
  * @param projectProfile - Lightweight project info (language, framework, etc.)
  * @param templates - Which eval templates to instantiate
  * @param config - Kairn configuration with provider, API key, and model
+ * @param analysis - Optional ProjectAnalysis for domain-specific task generation
  * @returns Validated array of Task objects
  */
 export async function generateTasksFromTemplates(
@@ -293,8 +382,9 @@ export async function generateTasksFromTemplates(
   projectProfile: ProjectProfileSummary,
   templates: EvalTemplate[],
   config: KairnConfig,
+  analysis?: ProjectAnalysis,
 ): Promise<Task[]> {
-  const userMessage = buildTaskGenerationMessage(claudeMd, projectProfile, templates);
+  const userMessage = buildTaskGenerationMessage(claudeMd, projectProfile, templates, analysis);
 
   const rawResponse = await callLLM(config, userMessage, {
     systemPrompt: TASK_GENERATION_PROMPT,

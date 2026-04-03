@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { KairnConfig } from "../../types.js";
 import type { EvalTemplate, ProjectProfileSummary, Task } from "../types.js";
+import type { ProjectAnalysis } from "../../analyzer/types.js";
 
 // Mock callLLM before importing the module under test
 const callLLMMock = vi.fn();
@@ -445,5 +446,144 @@ describe("TASK_GENERATION_PROMPT includes substantive template guidance", () => 
 
   it("mentions category field in task output", () => {
     expect(TASK_GENERATION_PROMPT).toContain("category");
+  });
+});
+
+function makeSampleAnalysis(): ProjectAnalysis {
+  return {
+    purpose: "REST API for managing inventory",
+    domain: "e-commerce",
+    key_modules: [
+      {
+        name: "auth",
+        path: "src/auth/",
+        description: "Handles authentication and authorization",
+        responsibilities: ["JWT tokens", "role-based access"],
+      },
+      {
+        name: "inventory",
+        path: "src/inventory/",
+        description: "Core inventory management logic",
+        responsibilities: ["stock tracking", "reorder alerts"],
+      },
+    ],
+    workflows: [
+      {
+        name: "order-fulfillment",
+        description: "Process customer orders and update stock",
+        trigger: "POST /orders",
+        steps: ["validate order", "check stock", "decrement inventory", "send confirmation"],
+      },
+    ],
+    architecture_style: "REST-API",
+    deployment_model: "docker-compose",
+    dataflow: [
+      { from: "auth", to: "inventory", data: "user context" },
+    ],
+    config_keys: [
+      { name: "DATABASE_URL", purpose: "PostgreSQL connection string" },
+      { name: "JWT_SECRET", purpose: "Token signing key" },
+    ],
+    sampled_files: ["src/auth/index.ts", "src/inventory/service.ts"],
+    content_hash: "def456",
+    analyzed_at: new Date().toISOString(),
+  };
+}
+
+describe("generateTasksFromTemplates with analysis context", () => {
+  const config = makeConfig();
+  const profile = makeProfile();
+  const templates: EvalTemplate[] = ["add-feature", "real-bug-fix", "codebase-question"];
+  const claudeMd = "# Inventory API\nAn Express-based inventory management system.";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("includes module names from analysis in user message", async () => {
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+    const analysis = makeSampleAnalysis();
+
+    await generateTasksFromTemplates(claudeMd, profile, templates, config, analysis);
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("auth");
+    expect(userMessage).toContain("inventory");
+  });
+
+  it("includes module paths from analysis in user message", async () => {
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+    const analysis = makeSampleAnalysis();
+
+    await generateTasksFromTemplates(claudeMd, profile, templates, config, analysis);
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("src/auth/");
+    expect(userMessage).toContain("src/inventory/");
+  });
+
+  it("includes workflow names from analysis in user message", async () => {
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+    const analysis = makeSampleAnalysis();
+
+    await generateTasksFromTemplates(claudeMd, profile, templates, config, analysis);
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("order-fulfillment");
+  });
+
+  it("includes project purpose and domain from analysis", async () => {
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+    const analysis = makeSampleAnalysis();
+
+    await generateTasksFromTemplates(claudeMd, profile, templates, config, analysis);
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("REST API for managing inventory");
+    expect(userMessage).toContain("e-commerce");
+  });
+
+  it("includes architecture style and deployment model", async () => {
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+    const analysis = makeSampleAnalysis();
+
+    await generateTasksFromTemplates(claudeMd, profile, templates, config, analysis);
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("REST-API");
+    expect(userMessage).toContain("docker-compose");
+  });
+
+  it("includes config keys from analysis", async () => {
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+    const analysis = makeSampleAnalysis();
+
+    await generateTasksFromTemplates(claudeMd, profile, templates, config, analysis);
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("DATABASE_URL");
+    expect(userMessage).toContain("JWT_SECRET");
+  });
+
+  it("works correctly without analysis (backward compatible)", async () => {
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+
+    const result = await generateTasksFromTemplates(claudeMd, profile, templates, config);
+
+    expect(result.length).toBe(2);
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    // Should not contain analysis section
+    expect(userMessage).not.toContain("## Project Analysis");
+  });
+
+  it("includes module responsibilities for richer task generation", async () => {
+    callLLMMock.mockResolvedValueOnce(makeValidTasksJson());
+    const analysis = makeSampleAnalysis();
+
+    await generateTasksFromTemplates(claudeMd, profile, templates, config, analysis);
+
+    const userMessage = callLLMMock.mock.calls[0][1] as string;
+    expect(userMessage).toContain("JWT tokens");
+    expect(userMessage).toContain("stock tracking");
   });
 });

@@ -2,7 +2,9 @@ import fs from 'fs/promises';
 import path from 'path';
 import { stringify as yamlStringify } from 'yaml';
 import { loadConfig } from '../config.js';
+import { readCache } from '../analyzer/cache.js';
 import { selectTemplatesForWorkflow, generateTasksFromTemplates } from './templates.js';
+import type { ProjectAnalysis } from '../analyzer/types.js';
 import type { EvolveConfig, Task, ProjectProfileSummary } from './types.js';
 
 /**
@@ -157,11 +159,37 @@ export async function buildProjectProfile(
 }
 
 /**
+ * Read a cached ProjectAnalysis from the project directory.
+ *
+ * Attempts to read `.kairn-analysis.json` and extract the analysis.
+ * Returns `undefined` if the file is missing, unreadable, or contains
+ * invalid data — never throws.
+ */
+async function loadProjectAnalysis(
+  projectRoot: string,
+): Promise<ProjectAnalysis | undefined> {
+  try {
+    const cache = await readCache(projectRoot);
+    if (cache?.analysis) {
+      return cache.analysis;
+    }
+  } catch {
+    // Cache read failed — fall back silently
+  }
+  return undefined;
+}
+
+/**
  * Auto-generate project-specific eval tasks using the LLM.
  *
  * Reads the project's CLAUDE.md (if present), builds a project profile
  * by scanning key files, selects eval templates for the given workflow
  * type, then calls the LLM to generate concrete tasks.
+ *
+ * When a `.kairn-analysis.json` cache file exists, enriches the task
+ * generation prompt with domain-specific context (modules, workflows,
+ * config keys) so that substantive tasks reference actual project
+ * components instead of generic placeholders.
  *
  * @param projectRoot - Path to the project root directory
  * @param workflowType - The type of workflow (e.g., "feature-development", "maintenance")
@@ -190,9 +218,12 @@ export async function autoGenerateTasks(
   // Build project profile by scanning key files
   const profile = await buildProjectProfile(projectRoot);
 
+  // Load cached ProjectAnalysis for domain-specific task generation
+  const analysis = await loadProjectAnalysis(projectRoot);
+
   // Select templates for workflow type
   const templates = selectTemplatesForWorkflow(workflowType);
 
-  // Generate tasks via LLM
-  return generateTasksFromTemplates(claudeMd, profile, templates, config);
+  // Generate tasks via LLM, enriched with analysis context when available
+  return generateTasksFromTemplates(claudeMd, profile, templates, config, analysis);
 }
