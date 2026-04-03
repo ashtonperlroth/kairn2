@@ -7,6 +7,13 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [2.11.1] — 2026-04-02
+
+### Changed
+- **README restructured** — thesis-first format replacing documentation-order layout. New "What's Under the Hood" section surfaces PBT, Thompson sampling, Harness IR, multi-agent compilation, hybrid scoring, and persistent execution loops with real technical explanations. Sharper competitive positioning vs DSPy, OpenEvolve, and OMC. New Vision section on fleet-scale harness optimization. Examples condensed from 3 to 1. Total length cut 51% (621 → 304 lines) while increasing technical depth.
+
+---
+
 ## [2.11.0] — 2026-04-02
 
 ### Added

@@ -1,49 +1,216 @@
 # Kairn — The Agent Environment Compiler
 
-> Describe your workflow. Get an optimized Claude Code environment. Then evolve it automatically.
+> Agent harnesses are programs. They should be compiled from intent and optimized through evolutionary search — not hand-written.
 
-Kairn is a CLI that compiles natural language descriptions into minimal, optimal [Claude Code](https://code.claude.com/) agent environments — complete with MCP servers, slash commands, skills, subagents, rules, and security. Then it uses **automated evolution** (inspired by [Meta-Harness](https://yoonholee.com/meta-harness/), Stanford IRIS Lab 2026) to improve them through real-world task execution.
+Every Claude Code project ships with a `.claude/` directory: system prompts, slash commands, rules, agents, hooks, MCP configs, security policies. Today, teams hand-write these files, cargo-culting from templates and fixing problems by trial and error. The harness *is* the program that shapes agent behavior, but nobody treats it like one.
 
-**v2.11.0** introduces a **Multi-Agent Compilation Pipeline** — the monolithic Pass 2 LLM call is replaced by an @orchestrator planner and 6 specialist agents (@sections-writer, @command-writer, @agent-writer, @rule-writer, @doc-writer, @skill-writer) that run in parallel phases, producing typed HarnessIR nodes. Eliminates JSON truncation failures and produces higher-quality harnesses. Previous highlights: persistent execution loops (v2.10), population-based evolution (v2.6), structured HarnessIR (v2.7), intent-aware routing (v2.5).
+Kairn treats it like one. You describe your workflow in natural language. Kairn compiles an optimized environment through a multi-agent pipeline — an @orchestrator plans the compilation, 6 specialist agents generate typed intermediate representation nodes in parallel, and a @linker validates cross-references before deterministic assembly. Then, optionally, Kairn *evolves* it: running real tasks against the harness, diagnosing failures via causal reasoning, proposing typed IR mutations, and repeating — with population-based training, Thompson sampling for task selection, and KL regularization to prevent bloat.
 
-**No servers. No accounts. No telemetry. Runs locally with your own LLM key.**
+The result is a harness that's been compiled from intent and stress-tested against real work, not guessed at by a human reading docs.
+
+**No servers. No accounts. No telemetry. Local-first, runs with your own LLM key.**
+
+Kairn's own development environment was compiled and evolved by Kairn.
 
 ---
 
-## Install
+## What's Under the Hood
 
-```bash
-npm install -g kairn-cli
+Most tools in this space either generate prompts or generate code. Kairn generates *full agent environments* — and then optimizes them as a system. Here's what that required building.
+
+### Multi-Agent Compilation Pipeline (v2.11)
+
+The monolithic "ask an LLM to produce a giant JSON blob" approach hits a wall at ~16K tokens: truncation, incoherence, format corruption. Kairn decomposes compilation into a DAG of specialist agents, each producing typed output within its own token budget.
+
+```
+Pass 1: Skeleton — LLM selects tools, outlines the project (max_tokens: 2048)
+Pass 2: @orchestrator — reads skeleton + intent, emits a CompilationPlan
+        (phased tasks, dependency ordering, per-agent token budgets)
+Pass 3: Specialist agents — parallel fan-out across phases:
+        Phase A: @sections-writer → Section[], @rule-writer → RuleNode[]
+        Phase B: @command-writer → CommandNode[], @agent-writer → AgentNode[],
+                 @skill-writer → SkillNode[]
+        Phase C: @linker — cross-reference validation + auto-patching
+Pass 4: Assembly — deterministic generation of settings.json, .mcp.json, hooks
 ```
 
-Requires Node.js 18+. The command is `kairn`.
+Each specialist produces typed HarnessIR nodes, not strings. The @linker detects broken `@agent` references in commands, missing `/project:command` mentions in agents, and injects mandatory help/security/continuity rules if absent. If an agent's output is truncated (`stop_reason === 'max_tokens'`), the batch engine retries with doubled budget — one agent failing doesn't crash the whole compilation.
+
+### Structured Harness IR (v2.7)
+
+Raw Markdown mutation accumulates contradictions, corrupts formatting, and breaks as files grow. Kairn operates on a typed intermediate representation: 14 node types (Section, CommandNode, RuleNode, AgentNode, SkillNode, DocNode, HookNode, SettingsIR, McpServerNode, IntentNode, ...), 17 mutation operations, and a semantic diff engine.
+
+The IR is round-trip tested: `parse → render → parse` preserves all content on real `.claude/` directories. The evolution loop mutates IR nodes directly — no regex replacement, no string surgery. The compilation pipeline produces IR, the evolution loop mutates IR, and the renderer writes files. One representation, end to end.
+
+### Population-Based Training with Thompson Sampling (v2.6)
+
+A single sequential evolution trajectory wastes wall-clock time on dead ends and overfits to its task sample. `kairn evolve pbt` runs N independent trajectories concurrently (default: 3), each with its own workspace, RNG seed, and Thompson Sampling beliefs.
+
+**Thompson Sampling** maintains a Beta distribution per eval task. Tasks with volatile scores (high uncertainty) get sampled more often; stable tasks less. This is uncertainty-driven exploration — the system automatically focuses evaluation budget where signal is weakest, rather than uniform random sampling.
+
+**KL Regularization** prevents harness bloat. Every mutation pays a complexity cost: `effective_score = raw_score - λ * complexityCost * 100`. The cost measures lines, files, sections, and character-level diff from baseline. The proposer must *earn* every addition. Default λ = 0.1.
+
+After all branches complete, a **Meta-Principal** LLM agent reads all branch results — iteration logs, per-task score matrices, Thompson beliefs, complexity metrics — and synthesizes the optimal harness by cherry-picking the best mutations from each trajectory. The synthesis is evaluated against the full task suite and must beat the best individual branch.
+
+### Hybrid Scoring (v2.8)
+
+Eval quality is the bottleneck of any optimization loop. Kairn blends deterministic rubric criteria (shell command checks: does the harness include a test command? does security block `rm -rf`?) with LLM-as-judge scoring, in a configurable weighted combination. Anthropic prompt caching on system prompts saves ~85% of tokens on repeated proposer/scorer calls. After mutation, targeted re-evaluation re-runs only tasks whose harness files were touched, saving ~40% eval cost per iteration.
+
+### Persistent Execution Loops (v2.10)
+
+Generated harnesses include `/project:persist` — a loop that reads acceptance criteria from `docs/SPRINT.md`, works criterion-by-criterion with structured progress tracking in `.claude/progress.json`, auto-retries on verification failure (max 3 per criterion), and delegates to a review gate before completion. Progress persists across sessions via `memory.json`.
+
+A `UserPromptSubmit` hook detects complex tasks (multi-step, feature-scope, refactoring, bug-with-repro) via 6 complexity signals and auto-routes them through the persistence loop. Simple tasks pass through normally. Configurable: `auto | manual | off`.
+
+### Anthropic Harness Patterns (v2.9)
+
+Comparative analysis against [Anthropic's harness design guidance](https://www.anthropic.com/engineering/harness-design-long-running-apps), [Everything Claude Code](https://github.com/affaan-m/everything-claude-code) (151 skills, 102 security rules), and [Oh-My-ClaudeCode](https://github.com/yeachan-heo/oh-my-claudecode) (model routing) identified 6 gaps. Kairn now generates:
+
+- **Sprint contracts** — `@architect` outputs numbered acceptance criteria; `/project:develop` validates each one individually
+- **Smart model routing** — agents include tiered routing guidance (Haiku for linting, Sonnet for implementation, Opus for architecture) with a `modelRouting` IR field
+- **Expanded security** — PreToolUse patterns from 5 to 20+ across credential leaks, injection, destructive ops, and network exfiltration
+- **Memory persistence** — SessionStart/End hooks save/load `.claude/memory.json` across sessions
+- **Context reset protocol** — full PostCompact alternative for long sessions (>2 hours or >3 compactions)
+
+### Self-Learning Intent Routing (v2.5)
+
+Two-tier routing compiles project-specific intent patterns at generation time. Tier 1: regex patterns (<10ms, $0) match keywords and synonyms. Tier 2: Haiku-powered semantic classification (~$0.001) handles ambiguous prompts. A background learner promotes recurring Tier 2 patterns to Tier 1 regexes after 3+ matches. Over time, the harness learns the user's vocabulary: session 1 is 40% regex, session 10 is 90%.
+
+---
+
+## What Makes Kairn Different
+
+**vs. DSPy** — DSPy optimizes *prompts*. Kairn optimizes *full environments*: system prompts, slash commands, rules, agents, hooks, MCP configs, security policies, intent routing — as a coherent system. DSPy's mutation space is string replacement on prompt templates. Kairn's is 17 typed IR operations on a 14-node-type intermediate representation with cross-reference validation.
+
+**vs. OpenEvolve** — OpenEvolve optimizes *code*. Kairn optimizes the *harness that shapes how agents write code*. Different layer of the stack, different mutation space, different eval methodology (real agent execution traces, not unit tests).
+
+**vs. Oh-My-ClaudeCode / static harness collections** — OMC ships a fixed set of 150 skills and 100+ rules. Kairn generates *project-specific* environments from intent, then evolves them against real tasks. Static harnesses can't adapt; Kairn's improve with use.
+
+**vs. manual `.claude/` directories** — No memorizing command names (intent routing). No trial-and-error (evolution loop). No format corruption (typed IR). No cargo-culting (compiled from your actual workflow).
+
+**The specific technical gaps:**
+- Full-environment optimization (not just prompts, not just code)
+- Typed IR mutations with pre-condition validation (not string replacement)
+- Population-based evolutionary search with uncertainty-driven sampling
+- Cross-component validation via the @linker (commands reference real agents, agents reference real commands)
+- Self-learning intent routing that promotes patterns from expensive LLM classification to free regex
+
+---
 
 ## Quick Start
 
 ```bash
-# 1. Set up your LLM provider (Anthropic, OpenAI, Google, xAI, DeepSeek, Mistral, Groq, or custom)
-kairn init
+npm install -g kairn-cli    # Node.js 18+
 
-# 2. Describe your workflow (or scan an existing repo)
+kairn init                   # Set up your LLM provider
 kairn describe "Build a Next.js app with Supabase auth"
-# or
-kairn optimize   # scans existing project at cwd
-
-# 3. Start coding
-claude
+claude                       # Start Claude Code with the compiled harness
 ```
 
-Kairn generates the entire `.claude/` directory — CLAUDE.md, settings.json, commands, rules, agents, hooks, security policies — tailored to your specific workflow. Then, optionally, evolve it:
+To evolve the harness:
 
 ```bash
-# Set up evolution
-kairn evolve init        # auto-generate 3-5 eval tasks
-kairn evolve baseline    # snapshot current harness
-
-# Optimize
-kairn evolve run --iterations 5   # Run evolution loop
-kairn evolve apply                 # Accept best harness
+kairn evolve init            # Auto-generate eval tasks from your project
+kairn evolve baseline        # Snapshot current harness
+kairn evolve run             # 5 iterations: evaluate → diagnose → mutate → re-evaluate
+kairn evolve apply           # Deploy the best harness
 ```
+
+Kairn generates the entire `.claude/` directory — CLAUDE.md, settings.json, commands, rules, agents, skills, hooks, docs, intent routing, security policies — plus `.mcp.json` and `.env`.
+
+Supports 8 LLM providers: Anthropic, OpenAI, Google, xAI, DeepSeek, Mistral, Groq, and any OpenAI-compatible endpoint.
+
+---
+
+## The Evolution Engine
+
+The heart of Kairn. Run your agent on real tasks, capture full execution traces, diagnose failures via causal reasoning, and mutate the harness iteratively.
+
+```
+Baseline (.claude/ snapshot)
+      │
+      ▼
+  Iteration 1
+  ├─ Evaluate: spawn Claude Code on each task, capture traces
+  │   (stdout, MCP tool calls, file diffs, execution time, pass/fail)
+  ├─ Diagnose: proposer (Sonnet) reads traces worst-first, performs causal reasoning
+  │   ("Task A failed because CLAUDE.md doesn't mention the /api path")
+  ├─ Mutate: propose 1-3 typed IR mutations
+  │   (17 operation types: update/add/remove sections, commands, rules, agents, MCP servers, ...)
+  ├─ Re-evaluate: run all tasks against the mutated harness
+  └─ Accept improvement / rollback regression
+      │
+      ▼
+  Iteration 2, 3, 4, 5...
+      │
+      ▼
+  Best harness (apply to .claude/)
+```
+
+**Safety controls:** max 3 mutations per iteration, per-task regression guard (>20 point drop = rollback), adaptive eval pruning on middle iterations, loss-weighted proposer focus.
+
+**Population-based mode:** `kairn evolve pbt` runs N parallel trajectories with Thompson Sampling + KL regularization, then synthesizes the optimal harness via Meta-Principal.
+
+### Example: Evolution in Action
+
+```bash
+kairn evolve init && kairn evolve baseline
+kairn evolve run --iterations 5
+
+# Iteration 1/5
+#   [task-1] pass  [task-2] fail  [task-3] pass  [task-4] fail  [task-5] pass
+#   Score: 60%
+#   Diagnosis: "password reset" not in CLAUDE.md, E2E tests need Playwright rule
+#   Mutations: +/project:email command, +authentication section, +e2e.md rule
+#
+# Iteration 2/5
+#   [task-1] pass  [task-2] pass  [task-3] pass  [task-4] pass  [task-5] pass
+#   Score: 100% — accepting mutations
+#
+# Iteration 3/5
+#   Score: 100% — CLAUDE.md bloated (142 lines), moving detail to rules/
+#
+# Iterations 4-5: plateau at 100%. No regressions.
+#
+# Final: baseline 60% → evolved 100%
+
+kairn evolve apply    # Deploy the winning harness
+```
+
+See [docs/walkthroughs/](docs/walkthroughs/) for full examples including generation, optimization, and PBT runs.
+
+---
+
+## Vision
+
+The architecture — typed IR, population-based training, multi-agent compilation with linker validation — was designed to extend from N=1 (one project, one harness) to N=500 (a fleet of agents with interdependent harnesses). Today Kairn compiles a single `.claude/` directory. The same pipeline generalizes to **swarm manifest compilation**: describe a fleet of agents with roles, contracts, and communication patterns; compile harnesses for each agent with inter-agent contract validation (agent A's output schema matches agent B's input expectations); evolve the fleet as a system, not individual harnesses in isolation.
+
+The linker already validates cross-references within a single harness (commands ↔ agents ↔ rules). Extending it to validate cross-references *between* harnesses — inter-agent contracts, shared MCP server configurations, compatible security policies — is the path from project-scoped optimization to fleet-scale coordination.
+
+---
+
+## Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `kairn init` | Interactive LLM provider setup (8 providers, API key stored locally) |
+| `kairn describe <intent>` | Compile intent → optimized `.claude/` environment |
+| `kairn optimize` | Scan existing project, audit + regenerate harness (`--diff` to preview) |
+| `kairn templates` | Browse and activate pre-built environments (Next.js, API, Research, Content) |
+| `kairn doctor` | Validate environment against Claude Code best practices |
+| `kairn keys` | Manage API keys for MCP servers (`--show` to audit) |
+| `kairn list` / `kairn activate <id>` | Save, browse, and re-deploy environments |
+| `kairn evolve init` | Scaffold evolution workspace, auto-generate eval tasks |
+| `kairn evolve baseline` | Snapshot current `.claude/` as iteration 0 |
+| `kairn evolve run` | Full evolution loop (`--iterations N`, `--parallel N`, `--runs N`) |
+| `kairn evolve pbt` | Population-based training (N parallel branches + Meta-Principal synthesis) |
+| `kairn evolve report` | Markdown/JSON summary with leaderboard and counterfactual diagnosis |
+| `kairn evolve diff <i1> <i2>` | Harness changes between two iterations |
+| `kairn evolve apply` | Deploy best (or specified) harness to `.claude/` |
+
+**Describe options:** `--quick` (skip clarification), `--autonomy 1-4` (guided → full auto), `--runtime hermes` (Hermes adapter)
+
+**Evolve options:** `--sampling thompson|uniform`, `--kl-lambda 0.1`, `--pbt-branches 3`, `--task <id>` (single task)
 
 ---
 
@@ -67,549 +234,66 @@ kairn evolve apply                 # Accept best harness
 .env                       # API keys (gitignored, masked in output)
 ```
 
----
-
-## Core Commands
-
-### `kairn init`
-
-Interactive setup. Pick your LLM provider, enter credentials. API key stored locally at `~/.kairn/config.json`.
-
-**Supported providers:**
-- **Anthropic** — Claude Sonnet 4.6, Opus 4.6, Haiku 4.5
-- **OpenAI** — GPT-4.1, GPT-4.1 mini, o4-mini, GPT-5 mini
-- **Google** — Gemini 2.5 Flash, Gemini 3 Flash, Gemini 2.5 Pro, Gemini 3.1 Pro
-- **xAI** — Grok 4.1 Fast, Grok 4.20 (2M context, $0.20/M)
-- **DeepSeek** — V3.2 Chat, V3.2 Reasoner (cheapest at $0.28/M)
-- **Mistral** — Large 3, Codestral, Small 4 (open-weight)
-- **Groq** — Llama 4, DeepSeek R1, Qwen 3 (free tier)
-- **Custom** — any OpenAI-compatible endpoint (local Ollama, LM Studio)
-
-### `kairn describe [intent] [options]`
-
-**The main command.** Describe what you want your agent to do. Kairn compiles an optimal environment.
-
-```bash
-kairn describe "Build a Next.js REST API with PostgreSQL"
-kairn describe "Research ML papers on GRPO training and summarize" --quick
-```
-
-**Features:**
-- **Interactive clarification** — 3-5 yes/no questions to refine your workflow (skip with `--quick`)
-- **Multi-pass compilation** — Skeleton pass (tool selection) → multi-agent harness generation → deterministic settings
-- **Autonomy levels** — Choose how autonomous (1-4, default 2):
-  - **Level 1 (Guided):** Manual workflow with `/project:tour`, help, and guidance
-  - **Level 2 (Assisted):** `/project:loop` for workflow automation, `@pm` agent for planning
-  - **Level 3 (Autonomous):** `/project:auto` for self-directed execution with PR delivery
-  - **Level 4 (Full Auto):** `/project:autopilot` for continuous execution with stop conditions
-- **Secrets collection** — Prompted for API keys after generation, written to `.env`
-- **Intent routing** — Auto-generated `/project:*` command routing (both regex and Haiku-based)
-
-### `kairn optimize [options]`
-
-Scan an existing project and optimize its Claude Code environment. Detects language, framework, dependencies, and generates improvements.
-
-```bash
-kairn optimize          # Scan, audit, and overwrite .claude/
-kairn optimize --diff   # Preview changes before writing
-kairn optimize --audit-only    # Show issues without generating
-```
-
-**Features:**
-- **Full project scan** — language, framework, dependencies, scripts, env keys, CI/CD, existing harness
-- **Harness audit** — checks CLAUDE.md quality, missing commands/rules, MCP bloat, security configurations
-- **Two modes:**
-  - No `.claude/` → generate from scratch
-  - Has `.claude/` → optimize + overwrite (shows audit issues first, asks for confirmation)
-- **Diff preview** — see what would change before applying (with `--diff`)
-
-### `kairn templates [options]`
-
-Browse pre-built environment templates. Activate one to jumpstart a new project.
-
-```bash
-kairn templates                  # Browse gallery
-kairn templates --activate nextjs       # Apply a template
-```
-
-**Available templates:**
-- Next.js Full-Stack (React + Node + PostgreSQL + Supabase)
-- API Service (Express/Fastify + database + testing)
-- Research Project (paper analysis, literature review, synthesis)
-- Content Writing (blog, documentation, marketing)
-
-### `kairn doctor`
-
-Validate the current environment against Claude Code best practices. Checks:
-- CLAUDE.md structure and token count
-- MCP server configuration completeness
-- Security rules and hooks
-- Command and agent definitions
-- Environment variable references
-
-### `kairn keys [options]`
-
-Manage API keys for MCP servers in the current environment.
-
-```bash
-kairn keys           # Prompt for missing keys
-kairn keys --show    # Show which keys are set vs missing
-```
-
-### `kairn list` / `kairn activate <env_id>`
-
-Show saved environments (stored in `~/.kairn/envs/`) and re-deploy them to any directory.
-
-```bash
-kairn list                    # List all saved environments
-kairn activate env_abc123     # Copy that environment to .claude/
-```
-
-### `kairn evolve` — Automated Harness Optimization
-
-The heart of v2.x. Run your agent on real tasks, capture execution traces, diagnose failures, and mutate the harness iteratively.
-
-#### `kairn evolve init`
-
-Set up evolution for the current project. Auto-generates 3-5 concrete eval tasks based on your CLAUDE.md and project structure.
-
-```bash
-kairn evolve init
-```
-
-Creates `.kairn-evolve/tasks.yaml` with tasks like:
-- "Add a new feature X to the codebase"
-- "Fix this known bug Y"
-- "Refactor the API layer for clarity"
-- "Write comprehensive test coverage"
-- "Update documentation after feature launch"
-
-Uses 6 built-in templates: add-feature, fix-bug, refactor, test-writing, config-change, documentation.
-
-#### `kairn evolve baseline`
-
-Snapshot your current `.claude/` directory as iteration 0 (the baseline to improve against).
-
-```bash
-kairn evolve baseline
-```
-
-#### `kairn evolve run`
-
-Run the full evolution loop. Evaluates all tasks, diagnoses failures, proposes mutations, re-evaluates.
-
-```bash
-kairn evolve run                        # 5 iterations (default)
-kairn evolve run --iterations 3         # Custom iteration count
-kairn evolve run --task <task_id>       # Run a single task
-kairn evolve run --parallel 4           # Parallel task evaluation (4 concurrent)
-kairn evolve run --runs 3               # Run each task 3 times, report mean ± stddev
-```
-
-**How it works (the loop):**
-
-1. **Evaluate** — Run each eval task by spawning Claude Code in an isolated workspace. Capture full traces:
-   - stdout, stderr
-   - MCP tool calls (which tools, inputs, outputs)
-   - Files changed (diffs)
-   - Execution time, pass/fail status
-
-2. **Diagnose** — A proposer agent (Opus) reads the full trace filesystem and performs causal reasoning:
-   - "Task A failed because CLAUDE.md doesn't mention the /api path"
-   - "Task B passed on iteration 1 but regressed on iteration 3 — the new security rule broke it"
-   - "Tasks A and C both needed /project:fix but there's no /project:fix command"
-
-3. **Mutate** — Propose minimal, targeted changes to the harness:
-   - `replace`: Update a section in CLAUDE.md, a command, a rule
-   - `add_section`: Insert new guidance into CLAUDE.md
-   - `create_file`: Add a new command or rule
-   - `delete_section`: Remove contradictory or bloat sections
-   - `delete_file`: Remove unused commands/rules
-   - `add_intent_pattern`: Add a new natural language pattern (v2.5.0)
-   - `modify_intent_prompt`: Improve the Tier 2 Haiku classifier (v2.5.0)
-
-4. **Re-evaluate** — Run all tasks again with the mutated harness. If scores improve → accept. If scores regress → rollback to previous best.
-
-5. **Repeat** — Iterate N times (default 5). Each iteration cycles through evaluate → diagnose → mutate → re-evaluate.
-
-**Scoring:**
-- **pass/fail** (default) — task passes or fails
-- **llm-judge** — LLM reads task output and scores (0-100)
-- **rubric** — custom weighted scoring function
-
-**Adaptive pruning (v2.2.7):**
-On middle iterations, skip slow/expensive tasks above a confidence threshold. Re-run all tasks on the first and last iteration for rigor.
-
-**Anti-regression guards (v2.2.8):**
-- `maxMutationsPerIteration` (default: 3) — cap mutations per step
-- `maxTaskDrop` (default: 20) — if any single task drops >20 points, rollback
-- Loss-weighted proposer focus — proposer reads failures worst-first
-
-#### `kairn evolve report`
-
-Generate a human-readable summary of the evolution run.
-
-```bash
-kairn evolve report          # Markdown to stdout
-kairn evolve report --json   # Machine-readable JSON
-```
-
-Shows:
-- Evolution leaderboard (iterations × tasks × scores)
-- Per-task trace diffs (what changed between iterations for the same task)
-- Counterfactual diagnosis (which mutations helped/hurt which tasks)
-- Wall time, token cost, iterations completed
-
-#### `kairn evolve diff <iter1> <iter2>`
-
-Show the harness changes between two iterations.
-
-```bash
-kairn evolve diff 0 3   # Show all mutations from baseline to iteration 3
-```
-
-#### `kairn evolve apply [--iter N]`
-
-Copy the best (or specified) evolved harness back to `.claude/`.
-
-```bash
-kairn evolve apply         # Copy best iteration to .claude/
-kairn evolve apply --iter 3    # Copy iteration 3 specifically
-```
-
----
-
-## Tool Registry
-
-Kairn ships with **28 curated MCP servers** across 8 categories. Tools are auto-selected based on your workflow — fewer tools = less context bloat = better agent performance.
-
-| Category | Tools |
-|----------|-------|
-| **Reasoning** | Context7, Sequential Thinking |
-| **Code & DevTools** | GitHub MCP, Chrome DevTools |
-| **Search & Research** | Exa, Brave Search, Firecrawl, Perplexity |
-| **Browser Automation** | Playwright, Browserbase |
-| **Data & Infrastructure** | PostgreSQL, Supabase, SQLite, Docker, Vercel |
-| **Communication** | Slack, Notion, Linear, AgentMail, Gmail |
-| **Security** | Semgrep, security-guidance |
-| **Design** | Figma, Frontend Design |
-
----
-
-## How the Pipeline Works
-
-### Generation (kairn describe / kairn optimize)
-
-1. **User input** — intent string or scanned project profile
-2. **Clarification** (optional) — 3-5 yes/no questions to refine workflow
-3. **Pass 1: Skeleton** — LLM selects minimal tool set and outlines the project
-4. **Pass 2: Plan** — @orchestrator reads skeleton, emits a compilation plan (what agents/commands/rules to generate, in what phases)
-5. **Pass 3: Specialist agents** — parallel fan-out to @sections-writer, @command-writer, @agent-writer, @rule-writer, @doc-writer, @skill-writer — each produces typed HarnessIR nodes
-6. **Pass 3c: Linker** — validates cross-references between commands ↔ agents ↔ rules
-7. **Pass 4: Assembly** — deterministic generation of `settings.json`, `.mcp.json`, intent patterns, hooks
-8. **Write files** — `.claude/` directory + `.mcp.json` + `.env` (with masked keys)
-
-### Evolution (kairn evolve run)
-
-```
-Baseline (.claude/ snapshot)
-      │
-      ▼
-  Iteration 1
-  ├─ Evaluate: run all tasks, capture traces
-  ├─ Diagnose: proposer reads traces, reasons about failures
-  ├─ Mutate: generate 1-3 harness mutations
-  ├─ Re-evaluate: run all tasks again
-  └─ Accept/rollback based on score improvement
-      │
-      ▼
-  Iteration 2, 3, 4, 5...
-      │
-      ▼
-  Best harness (apply to .claude/)
-```
-
-Each iteration is independent and can be retried. The proposer has memory of all prior iterations (v2.4.0 experience replay, coming soon).
-
-### Self-Learning (v2.5.0)
-
-```
-Tier 1: regex hook intercepts prompt
-        ├─ Matches pattern? → route to command + inject context
-        └─ No match? → fallthrough to Tier 2
-
-Tier 2: Haiku prompt hook
-        ├─ Classify intent
-        ├─ Route to command if confident
-        └─ Log routing attempt (for learning)
-
-SessionStart: intent-learner.mjs
-        ├─ Read intent-log.jsonl (recent tier 2 routings)
-        ├─ Promote recurring patterns to regex
-        ├─ Update intent-router.mjs
-        └─ Write audit trail
-```
-
-Over time, more patterns become regex (fast, free) instead of Haiku (slow, $0.001).
-
----
-
-## Example Workflow
-
-### Scenario: Build a Next.js API
-
-```bash
-cd /tmp/my-api
-git init
-
-kairn describe "Next.js REST API with Prisma ORM and PostgreSQL. OAuth login, JWT auth, rate limiting."
-
-# Output:
-# ✔ Pass 1: Selected 7 tools (GitHub, PostgreSQL, Vercel, Semgrep, Docker, Context7, Sequential Thinking)
-# ✔ Pass 2: @orchestrator planned 6 agents across 3 phases
-# ✔ Pass 3: Specialist agents generated 8 commands, 4 rules, 3 agents, 2 skills (73 lines in CLAUDE.md)
-# ✔ Pass 4: Configured 2 MCP servers (PostgreSQL + GitHub)
-# 
-# Commands:
-#   /project:help      Show available commands
-#   /project:plan      Draft the API spec
-#   /project:develop   Full development pipeline
-#   /project:test      Run test suite
-#   /project:fix       Issue-driven bug fixing
-#   /project:deploy    Deploy to Vercel
-#   /project:security  Audit for vulnerabilities
-#   /project:batch     Run batches of independent tasks
-#
-# Env keys needed:
-#   POSTGRES_URL
-#   JWT_SECRET
-#   GITHUB_TOKEN
-#   VERCEL_TOKEN
-#
-# Paste your secrets (or press enter to skip):
-# POSTGRES_URL: ***
-# JWT_SECRET: ***
-# GITHUB_TOKEN: (skipped)
-# VERCEL_TOKEN: (skipped)
-#
-# Ready! Run: $ claude
-
-claude   # Start Claude Code with the generated harness
-
-# In Claude Code:
-# > /project:plan
-# Drafts the API specification with OAuth flow, database schema, endpoint design
-#
-# > /project:develop feature/auth
-# Full pipeline: specs feature in detail, plans implementation, TDD red→green→refactor,
-# writes tests, runs security audit, updates docs
-#
-# > /project:fix
-# Shows recent issues, user picks one, Claude researches the bug, fixes it, runs tests
-```
-
-### Scenario: Optimize an Existing Project
-
-```bash
-cd /path/to/existing/next-app
-# It has a manual .claude/ directory
-
-kairn optimize
-
-# Output:
-# ✔ Scan: TypeScript, Next.js, 47 dependencies, 8 scripts
-#
-# Harness Audit:
-#   CLAUDE.md: 187 lines ✓ (good)
-#   MCP servers: 4
-#   Commands: 5 (/help, /plan, /code, /test, /deploy)
-#   Rules: 2 (security, continuity)
-#
-# Issues found:
-#   ⚠ Missing /project:develop command (full development pipeline)
-#   ⚠ No path-scoped rules (api.md, testing.md for different code domains)
-#   ⚠ Hooks not configured (missing destructive command blocking)
-#
-# Generate optimized environment? This will overwrite existing .claude/ files.
-# > Yes
-#
-# ✔ Environment compiled in 12s
-# ✔ Files written: 4 new, 3 modified, 1 unchanged
-#
-# Ready! Run: $ claude
-```
-
-### Scenario: Evolve the Harness
-
-```bash
-# Harness is generated and working. Set up evolution:
-
-kairn evolve init
-
-# Auto-generated 5 eval tasks based on CLAUDE.md + project structure:
-#   task-1: "Implement user profile page"
-#   task-2: "Add password reset flow"
-#   task-3: "Refactor authentication middleware"
-#   task-4: "Write E2E tests for checkout flow"
-#   task-5: "Update API documentation after feature release"
-
-kairn evolve baseline    # Snapshot current .claude/ as iteration 0
-
-kairn evolve run --iterations 5
-
-# Iteration 1/5
-#   Evaluating... [task-1] pass [task-2] fail [task-3] pass [task-4] fail [task-5] pass
-#   Score: 3/5 (60%)
-#
-#   Diagnosing failures...
-#   - Task 2 failed: "password reset" not mentioned in CLAUDE.md. Need /project:email command.
-#   - Task 4 failed: E2E tests failed because missing /project:test. Added but not documented.
-#
-#   Proposing mutations:
-#     - Add /project:email command with SMTP integration guidance
-#     - Update CLAUDE.md "Authentication" section with password reset flow
-#     - Add e2e.md path-scoped rule with Playwright patterns
-#
-# Iteration 2/5
-#   Evaluating with mutated harness...
-#   [task-1] pass [task-2] pass [task-3] pass [task-4] pass [task-5] pass
-#   Score: 5/5 (100%) ✔ improvement! Accepting mutations.
-#
-# Iteration 3/5
-#   Evaluating...
-#   [task-1] pass [task-2] pass [task-3] pass [task-4] pass [task-5] pass
-#   Score: 5/5 (100%) — no regression, but no improvement. Proposing refactements...
-#   - CLAUDE.md got bloated (142 lines). Moving detail to rules/.
-#   Iteration 3 score: 5/5. Accepting.
-#
-# Iterations 4-5: Scores plateau at 5/5. No more mutations.
-#
-# Final leaderboard:
-#   Iteration 0 (baseline):   60% (3/5)
-#   Iteration 1:              60% (3/5)
-#   Iteration 2:             100% (5/5) ← best
-#   Iteration 3:             100% (5/5)
-#   Iteration 4:             100% (5/5)
-#   Iteration 5:             100% (5/5)
-
-kairn evolve report    # Detailed markdown summary
-kairn evolve apply     # Copy iteration 2 to .claude/
-```
-
----
-
-## Architecture & Philosophy
-
-### Design Principles
-
-1. **Minimal over complete.** 5 well-chosen tools beat 50 generic ones.
-2. **Workflow-specific over generic.** Every file generated relates to your actual task.
-3. **Self-improving.** Environments get better with use via the evolution loop and self-learning intent router.
-4. **Local-first.** No accounts, no servers, no telemetry. Runs offline with your own LLM key.
-5. **Transparent.** You can inspect every generated file. Nothing is hidden.
-6. **Security by default.** Every environment includes deny rules, hooks, and guidance.
-7. **Prove it.** Evolved harnesses must demonstrably outperform static ones. Claims require measurement.
-
-### What Makes Kairn Unique
-
-**vs. Manual `.claude/` directories:**
-- Auto-generated from codebase scan or workflow description
-- Intent routing (don't memorize command names)
-- Automated evolution (harness improves on real tasks)
-
-**vs. Other agents (OMC, AutoCoder, etc.):**
-- Kairn manages the *harness* (instructions, MCP, commands, rules, agents), not agents themselves
-- Kairn uses the evolution loop to improve the harness (not the agent capability)
-- Two-tier intent routing (regex + Haiku) is unique to Kairn v2.5.0+
-
-**vs. DSPy, Meta-Harness, OpenEvolve:**
-- Kairn is CLI-first and project-scoped (not a framework library)
-- Integrated with Claude Code's native hooks API (not custom inference)
-- Generates MCP configurations alongside harness (full integration)
+**Tool registry:** 28 curated MCP servers across reasoning, code, search, browser automation, data/infrastructure, communication, security, and design. Auto-selected based on workflow — fewer tools = less context bloat = better agent performance.
 
 ---
 
 ## Roadmap
 
-### v1.x ✅ (Complete)
-Local CLI for generating and managing Claude Code environments. Includes advanced patterns (sprint contracts, multi-agent QA, autonomy levels), templates, secrets management, and Claude Code power patterns (TDD, verification, known gotchas).
+### v1.x (Complete)
+Local CLI: intent compilation, project scanning, templates, secrets management, autonomy levels (1-4), interactive clarification, branded CLI, verification patterns, sprint contracts, multi-agent QA, 8 LLM providers.
 
 ### v2.x (Current — v2.11.0)
 **Kairn Evolve** — automated harness optimization.
 
-- **v2.0.0** ✅ Task Definition & Trace Infrastructure
-- **v2.1.0** ✅ The Evolution Loop
-- **v2.2.x** ✅ Diagnosis, Reporting, Parallel Evaluation, Anti-Regression Guards
-- **v2.3.0** ✅ Eval Quality & Auth (Claude Code subscription OAuth, prompt caching)
-- **v2.5.0** ✅ Intent-Aware Harnesses (two-tier routing: regex + Haiku, self-learning)
-- **v2.6.0** ✅ Population-Based Training (parallel evolution branches, Thompson Sampling, KL regularization)
-- **v2.7.0** ✅ Structured Harness IR (typed mutations, semantic diff, round-trip renderer)
-- **v2.8.0** ✅ Evolution Quality (hybrid scoring, prompt caching, Sonnet proposer, targeted re-eval)
-- **v2.9.0** ✅ Harness Quality: Anthropic Patterns (sprint contracts, model routing, expanded security)
-- **v2.10.0** ✅ Persistent Execution Loop (/project:persist, progress tracking, auto-routing)
-- **v2.11.0** 🔄 Multi-Agent Compilation Pipeline (orchestrator → specialist agents → HarnessIR)
-- **v2.12.0** ⏳ Polish & Integration (dashboard, watch mode, CI/CD, describe→evolve)
+- **v2.0** ✅ Task definition, trace infrastructure, eval templates
+- **v2.1** ✅ The evolution loop (evaluate → diagnose → mutate → re-evaluate → rollback)
+- **v2.2** ✅ Diagnosis, reporting, parallel evaluation, anti-regression guards
+- **v2.3** ✅ Eval quality, Claude Code subscription auth, prompt caching
+- **v2.5** ✅ Intent-aware harnesses (two-tier routing, self-learning promotion)
+- **v2.6** ✅ Population-based training (Thompson sampling, KL regularization, Meta-Principal synthesis)
+- **v2.7** ✅ Structured Harness IR (14 node types, 17 mutations, semantic diff, round-trip renderer)
+- **v2.8** ✅ Hybrid scoring, prompt caching (~85% savings), targeted re-evaluation (~40% cost reduction)
+- **v2.9** ✅ Anthropic patterns (sprint contracts, model routing, 20+ security rules, memory persistence)
+- **v2.10** ✅ Persistent execution loops (/project:persist, auto-routing, progress tracking)
+- **v2.11** ✅ Multi-agent compilation (orchestrator → specialist agents → linker → HarnessIR)
+- **v2.12** ⏳ Polish: live dashboard, describe→evolve integration, CI/CD, template evolution
 
 ### v3.x (Aspirational)
-Broader harness scope (plugins, external tools), paid tool connections, hosted platform, learning system.
+Fleet-scale harness optimization. Swarm manifest compilation. Inter-agent contract validation. Runtime-agnostic harness IR (Claude Code, Hermes, OpenClaw). Tool marketplace with proposer-initiated discovery.
 
 ---
 
 ## Security
 
-- **API keys stay local.** Stored at `~/.kairn/config.json`, never transmitted.
-- **Every environment includes security rules.** Deny rules for `rm -rf`, `curl | sh`, reading `.env` and `secrets/`.
-- **Curated registry only.** Every MCP server is manually verified.
-- **Environment variable references.** MCP configs use `${ENV_VAR}` syntax — secrets never written to config files.
-- **Path traversal protection.** Evolution mutations are validated against `../` injection.
-- **Hooks in settings.json** — `PreToolUse` hooks block destructive commands, `PostCompact` hooks restore context.
+- API keys stay local (`~/.kairn/config.json`, never transmitted)
+- Every environment includes 20+ PreToolUse deny rules across credential leaks, injection, destructive ops, and network exfiltration
+- Curated MCP registry only — every server manually verified
+- Environment variables use `${ENV_VAR}` syntax — secrets never written to config files
+- Path traversal protection on all evolution mutations
+- Hooks block destructive commands; PostCompact restores context
 
 ---
 
 ## FAQ
 
-**Q: Do I need a Kairn account?**
-A: No. Kairn is a local CLI. Your API key for Claude/GPT/Gemini is configured once and stored locally.
+**Do I need an account?** No. Local CLI, your API key, no backend.
 
-**Q: Does Kairn send my code to external servers?**
-A: No. All LLM calls use your own API key. Kairn CLI has no backend.
+**Does Kairn send my code anywhere?** No. All LLM calls use your key. Nothing leaves your machine except API requests.
 
-**Q: Can I use Kairn with Claude Code on a team?**
-A: Yes. Generate the harness locally, commit `.claude/` to git. Team members run `claude` and get the same environment. The evolve loop runs locally per person (results don't auto-merge).
+**Team use?** Generate locally, commit `.claude/` to git. Everyone gets the same environment.
 
-**Q: What if I want to keep my manual `.claude/` customizations?**
-A: Use `kairn optimize --diff` to preview changes. You can selectively accept or reject them. For full control, don't use `optimize` — use `describe` once and then hand-edit the generated files.
+**Keep manual customizations?** `kairn optimize --diff` previews changes. Accept or reject selectively.
 
-**Q: How much does evolution cost?**
-A: Depends on your model, iteration count, and task volume. A 5-iteration evolution run with 5 tasks on Anthropic:
-- Evaluation: ~100K tokens per iteration (traces logged)
-- Proposer: ~80K tokens per iteration (diagnosis + mutation)
-- Re-evaluation: ~100K tokens per iteration
-- **Total:** ~1.5M tokens = ~$15-50 (Opus/Claude 3) or ~$2-5 (Haiku)
+**Evolution cost?** 5 iterations, 5 tasks on Anthropic: ~1.5M tokens (~$15-50 Opus, ~$2-5 Haiku). PBT multiplies by branch count but runs concurrently.
 
-**Q: Can I evolve just one task?**
-A: Yes. `kairn evolve run --task <task_id>` runs a single task.
-
-**Q: What's the intent router doing on my prompt?**
-A: When you type a prompt like "deploy this", the intent router:
-1. Checks Tier 1 regex patterns (fast, free)
-2. If no match, sends to Tier 2 (Haiku, ~$0.001)
-3. Injects `/project:deploy` into your message context
-4. Claude reads that and executes the command
-
-You can disable it with `"enableTier2": false` in settings.json if you find it intrusive.
+**What's the intent router doing?** Intercepts natural language prompts, matches to `/project:*` commands via regex (free) or Haiku (~$0.001). Disable Tier 2 with `"enableTier2": false`.
 
 ---
 
 ## Contributing
 
-Kairn is open-source. Contributions welcome:
-- New MCP servers to the registry
-- Eval task templates for new project types
-- Improved proposer prompts
-- Bug reports and UX feedback
-
----
+Kairn is open-source. Contributions welcome: MCP servers to the registry, eval task templates, proposer prompt improvements, bug reports.
 
 ## License
 
